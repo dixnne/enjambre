@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'preact/hooks';
-import { auth, onAuthStateChanged, signInAnonymously } from './firebase';
 import { initialPins, CATEGORIES } from './constants';
 import { Pin } from './components/Pin';
 import { PinCreationModal } from './components/PinCreationModal';
@@ -205,14 +204,13 @@ export default function App() {
     const [authCompleted, setAuthCompleted] = useState(false);
 
     useEffect(() => {
-        if (!auth) return;
-
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        const auth = window.firebase.auth();
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => {
             if (currentUser) {
                 setUser(currentUser);
                 setLoading(false);
             } else {
-                signInAnonymously(auth).catch(err => {
+                auth.signInAnonymously().catch(err => {
                     console.error("Fallo el inicio de sesión anónimo:", err);
                     setError("No se pudo conectar a la red. Revisa tu conexión a internet.");
                     setLoading(false);
