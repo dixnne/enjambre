@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
-import { initialPins, CATEGORIES } from './constants';
-import { Pin } from './components/Pin';
+import { CATEGORIES } from './constants';
+import { pinService, userService } from './services/firebase';
 import { PinCreationModal } from './components/PinCreationModal';
 import { PinInfoScreen } from './components/PinInfoScreen';
 import { ConversationsListScreen } from './components/ConversationsListScreen';
@@ -10,6 +10,7 @@ import { FilterPanel } from './components/FilterPanel';
 import { Header } from './components/Header';
 import { ActionButtons } from './components/ActionButtons';
 import { NearbyPinsDrawer } from './components/NearbyPinsDrawer';
+import Map from './components/Map';
 
 function LoadingScreen() {
     return (
@@ -59,8 +60,7 @@ function AuthenticatedScreen({ userId, onContinue }) {
 
 function AuthenticatedApp({ userId }) {
   const [view, setView] = useState('map'); // map, myPins, pinInfo, conversations, chat
-  const [pins, setPins] = useState(initialPins);
-  const [pendingPins, setPendingPins] = useState([]);
+  const [pins, setPins] = useState([]);
   const [isRequestModalOpen, setRequestModalOpen] = useState(false);
   const [isOfferModalOpen, setOfferModalOpen] = useState(false);
   const [selectedPin, setSelectedPin] = useState(null);
@@ -68,60 +68,162 @@ function AuthenticatedApp({ userId }) {
   const [isOnline, setIsOnline] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [isFilterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [userAlias, setUserAlias] = useState(null);
   
   const initialFilters = {
       categories: Object.keys(CATEGORIES).reduce((acc, cat) => ({...acc, [cat]: true }), {}),
       type: 'all', // all, need, offer
-      radius: 1.0 // in km
+      radius: 10.0 // in km
   };
   const [filters, setFilters] = useState(initialFilters);
 
+  // Generate random coordinates near a base location
+  const generateNearbyCoords = (baseCoords, maxDistanceKm) => {
+    const [baseLat, baseLng] = baseCoords;
+    // Rough conversion: 1 degree ≈ 111km
+    const latOffset = (Math.random() - 0.5) * (maxDistanceKm / 111) * 2;
+    const lngOffset = (Math.random() - 0.5) * (maxDistanceKm / (111 * Math.cos(baseLat * Math.PI / 180))) * 2;
+    return [baseLat + latOffset, baseLng + lngOffset];
+  };
+
+  // Calculate distance between two coordinates in km
+  const calculateDistance = (coords1, coords2) => {
+    const [lat1, lon1] = coords1;
+    const [lat2, lon2] = coords2;
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Initialize user profile
+  useEffect(() => {
+    const initUserProfile = async () => {
+      try {
+        let profile = await userService.getUserProfile(userId);
+        if (!profile) {
+          const alias = userService.generateUserAlias();
+          await userService.updateUserProfile(userId, { alias });
+          setUserAlias(alias);
+        } else {
+          setUserAlias(profile.alias);
+        }
+      } catch (error) {
+        console.error('Error initializing user profile:', error);
+        setUserAlias(userService.generateUserAlias());
+      }
+    };
+    initUserProfile();
+  }, [userId]);
+
+  // Initialize pins subscription when map is ready
+  const handleMapReady = ({ map, userLocation: userLoc }) => {
+    setMapReady(true);
+    setUserLocation(userLoc);
+  };
+
+  // Subscribe to pins from Firebase
+  useEffect(() => {
+    if (!mapReady) return;
+    
+    const unsubscribe = pinService.subscribeToPins((firestorePins) => {
+      // Mark pins as 'me' or 'other' based on userId
+      const pinsWithUser = firestorePins.map(pin => ({
+        ...pin,
+        user: pin.userId === userId ? 'me' : 'other'
+      }));
+      setPins(pinsWithUser);
+    }, userLocation);
+
+    return () => unsubscribe();
+  }, [mapReady, userId, userLocation]);
+
   const userPins = pins.filter(p => p.user === 'me');
 
-  useEffect(() => {
-    // Sincronizar pines pendientes cuando se recupera la conexión
-    if (isOnline && pendingPins.length > 0) {
-      setTimeout(() => { // Simular delay de red
-        setPins(prev => [...prev, ...pendingPins]);
-        setPendingPins([]);
-        alert('Conexión restablecida. ¡Tus pines pendientes han sido publicados!');
-      }, 1000);
-    }
-  }, [isOnline, pendingPins]);
+  const handlePublish = async (pinData) => {
+    try {
+      const baseLocation = userLocation || [51.505, -0.09];
+      const newPinLocation = generateNearbyCoords(baseLocation, 0.1); // Very close to user
+      
+      const pinToCreate = {
+        ...pinData,
+        latLng: newPinLocation,
+        time: 'ahora',
+        distance: `${calculateDistance(baseLocation, newPinLocation).toFixed(1)} km`
+      };
 
-
-  const handlePublish = (pinData) => {
-    const newPin = {
-      ...pinData,
-      id: Date.now(),
-      location: { top: `${Math.random() * 60 + 20}%`, left: `${Math.random() * 80 + 10}%` },
-      user: 'me',
-      time: 'ahora',
-      distance: '0.1 km',
-      conversations: []
-    };
-    if (isOnline) {
-      setPins([...pins, newPin]);
-    } else {
-      setPendingPins([...pendingPins, newPin]);
-      alert('Sin conexión. El pin se guardó y se publicará cuando vuelvas a estar online.');
+      if (isOnline) {
+        await pinService.createPin(pinToCreate, userId);
+        alert('¡Pin publicado exitosamente!');
+      } else {
+        alert('Sin conexión. Intenta de nuevo cuando tengas conexión.');
+      }
+    } catch (error) {
+      console.error('Error publishing pin:', error);
+      alert('Error al publicar el pin. Intenta de nuevo.');
     }
   };
   
-  const handlePinClick = (pin) => {
-    setSelectedPin(pin);
+  const handlePinClick = async (pin) => {
+    // Load conversations if it's a user's pin
+    if (pin.user === 'me') {
+      try {
+        const conversations = await pinService.getConversations(pin.id);
+        setSelectedPin({ ...pin, conversations: conversations || [] });
+      } catch (error) {
+        console.error('Error loading conversations:', error);
+        setSelectedPin({ ...pin, conversations: [] });
+      }
+    } else {
+      setSelectedPin(pin);
+    }
     setView('pinInfo');
   };
 
-  const handleResolvePin = (pinId) => {
-    setPins(pins.filter(p => p.id !== pinId));
-    goBackToMap();
+  const handleResolvePin = async (pinId) => {
+    try {
+      await pinService.resolvePin(pinId);
+      alert('¡Pin resuelto exitosamente!');
+      goBackToMap();
+    } catch (error) {
+      console.error('Error resolving pin:', error);
+      alert('Error al resolver el pin. Intenta de nuevo.');
+    }
   };
   
-  const handleAttend = (pin) => {
-    setSelectedPin(pin);
-    setSelectedConversation(null); // Es un chat nuevo
-    setView('chat');
+  const handleAttend = async (pin) => {
+    // Check if user already has a conversation for this pin
+    try {
+      const conversations = await pinService.getConversations(pin.id);
+      const existingConv = conversations.find(c => c.userId === userId);
+      
+      if (existingConv) {
+        setSelectedPin({ ...pin, conversations });
+        setSelectedConversation(existingConv);
+        setView('chat');
+      } else {
+        // Create new conversation
+        const initialMessage = '¡Hola! Vi tu pin y me gustaría ayudar.';
+        const conversation = await pinService.addConversation(
+          pin.id, 
+          userId, 
+          userAlias || 'Vecino#0000',
+          initialMessage
+        );
+        setSelectedPin({ ...pin, conversations: [conversation] });
+        setSelectedConversation(conversation);
+        setView('chat');
+      }
+    } catch (error) {
+      console.error('Error attending pin:', error);
+      alert('Error al conectar con el pin. Intenta de nuevo.');
+    }
   };
 
   const goBackToMap = () => {
@@ -130,14 +232,28 @@ function AuthenticatedApp({ userId }) {
     setView('map');
   };
     
-  const handleViewMyPin = (pin) => {
-    setSelectedPin(pin);
-    setView('pinInfo');
+  const handleViewMyPin = async (pin) => {
+    try {
+      const conversations = await pinService.getConversations(pin.id);
+      setSelectedPin({ ...pin, conversations: conversations || [] });
+      setView('pinInfo');
+    } catch (error) {
+      console.error('Error loading pin conversations:', error);
+      setSelectedPin({ ...pin, conversations: [] });
+      setView('pinInfo');
+    }
   };
 
-  const handleViewConversations = (pin) => {
-      setSelectedPin(pin);
+  const handleViewConversations = async (pin) => {
+    try {
+      const conversations = await pinService.getConversations(pin.id);
+      setSelectedPin({ ...pin, conversations: conversations || [] });
       setView('conversations');
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+      setSelectedPin({ ...pin, conversations: [] });
+      setView('conversations');
+    }
   };
   
   const handleSelectConversation = (conversation) => {
@@ -146,7 +262,8 @@ function AuthenticatedApp({ userId }) {
   }
 
   const filteredPins = pins.filter(pin => {
-      const distanceNum = parseFloat(pin.distance);
+      if (!pin.latLng || !userLocation) return true; // Show all if no location
+      const distanceNum = calculateDistance(userLocation, pin.latLng);
       if (distanceNum > filters.radius) return false;
       if (filters.type !== 'all' && pin.type !== filters.type) return false;
       if (!filters.categories[pin.category]) return false;
@@ -155,7 +272,8 @@ function AuthenticatedApp({ userId }) {
     
   return (
     <div className="h-screen w-screen bg-gray-200 flex flex-col font-sans overflow-hidden">
-      <div className="relative flex-grow w-full h-full bg-cover bg-center" style={{backgroundImage: "url('https://placehold.co/800x1200/e2e8f0/64748b?text=Mapa+de+la+Ciudad')"}}>
+      <div className="relative flex-grow w-full h-full bg-cover bg-center">
+        <Map pins={filteredPins} onPinClick={handlePinClick} onMapReady={handleMapReady} />
         
         <Header 
             isOnline={isOnline} 
@@ -163,8 +281,6 @@ function AuthenticatedApp({ userId }) {
             setFilterPanelOpen={setFilterPanelOpen} 
             setView={setView} 
         />
-
-        {filteredPins.map(pin => <Pin key={pin.id} pin={pin} onClick={handlePinClick}/>)}
         
         {view === 'map' && (
           <>
@@ -183,10 +299,10 @@ function AuthenticatedApp({ userId }) {
           </>
         )}
         
-        {view === 'myPins' && <MyPinsScreen userPins={userPins} pendingPins={pendingPins} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} />}
+        {view === 'myPins' && <MyPinsScreen userPins={userPins} pendingPins={[]} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} />}
         {view === 'pinInfo' && selectedPin && <PinInfoScreen pin={selectedPin} onBack={goBackToMap} onAttend={handleAttend} isMyPin={selectedPin.user === 'me'} onResolve={handleResolvePin} onViewConversations={handleViewConversations} />}
         {view === 'conversations' && <ConversationsListScreen pin={selectedPin} onBack={() => setView('pinInfo')} onSelectConversation={handleSelectConversation} />}
-        {view === 'chat' && <ChatScreen pin={selectedPin} conversation={selectedConversation} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} />}
+        {view === 'chat' && <ChatScreen pin={selectedPin} conversation={selectedConversation} userId={userId} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} />}
 
       </div>
 

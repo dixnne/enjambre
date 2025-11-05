@@ -12,7 +12,11 @@
   "dependencies": {
     "@preact/preset-vite": "^2.10.2",
     "@tailwindcss/vite": "^4.1.14",
+    "idb": "^8.0.3",
+    "leaflet": "^1.9.4",
+    "leaflet.offline": "^3.1.0",
     "preact": "^10.27.2",
+    "react-leaflet": "^5.0.0",
     "tailwindcss": "^4.1.14"
   },
   "devDependencies": {

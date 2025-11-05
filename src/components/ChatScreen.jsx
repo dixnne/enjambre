@@ -1,27 +1,49 @@
-import { useState } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { ArrowLeftIcon } from './icons';
+import { pinService } from '../services/firebase';
 
 // --- Pantalla de Chat ---
-export const ChatScreen = ({ pin, conversation, onBack }) => {
-    // Si no hay una conversación específica, crea una simulación para usuarios que atienden un pin
-    const initialMessages = conversation ? conversation.messages : [
-        { id: 1, text: `Hola, vi tu pin de ${pin.category}. ¿Puedo ayudarte?`, sender: 'me' },
-    ];
-    
-    const [messages, setMessages] = useState(initialMessages);
+export const ChatScreen = ({ pin, conversation, userId, onBack }) => {
+    const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
+    const [loading, setLoading] = useState(true);
 
-    const handleSend = () => {
-        if (newMessage.trim() === '') return;
-        const userMessage = { id: Date.now(), text: newMessage, sender: 'me' };
-        setMessages([...messages, userMessage]);
-        setNewMessage('');
+    // Subscribe to messages in real-time
+    useEffect(() => {
+        if (!pin || !conversation) return;
 
-        // Simulación de respuesta automática
-        setTimeout(() => {
-            const reply = {id: Date.now() + 1, text: "¡Claro! Muchas gracias. ¿Dónde nos vemos?", sender: 'other'};
-            setMessages(prev => [...prev, reply]);
-        }, 1500);
+        setLoading(true);
+        const unsubscribe = pinService.subscribeToMessages(
+            pin.id, 
+            conversation.id, 
+            (msgs) => {
+                // Map messages to include correct sender
+                const mappedMessages = msgs.map(msg => ({
+                    ...msg,
+                    sender: msg.senderId === userId ? 'me' : 'other'
+                }));
+                setMessages(mappedMessages);
+                setLoading(false);
+            }
+        );
+
+        return () => unsubscribe();
+    }, [pin, conversation, userId]);
+
+    const handleSend = async () => {
+        if (newMessage.trim() === '' || !pin || !conversation) return;
+        
+        try {
+            await pinService.addMessage(pin.id, conversation.id, {
+                text: newMessage,
+                sender: 'me',
+                senderId: userId
+            });
+            setNewMessage('');
+        } catch (error) {
+            console.error('Error sending message:', error);
+            alert('Error al enviar el mensaje. Intenta de nuevo.');
+        }
     };
 
     return (
@@ -36,13 +58,23 @@ export const ChatScreen = ({ pin, conversation, onBack }) => {
                 </div>
             </header>
             <div className="flex-grow p-4 overflow-y-auto bg-gray-100">
-                {messages.map(msg => (
-                    <div key={msg.id} className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'} mb-3`}>
-                        <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${msg.sender === 'me' ? 'bg-teal-500 text-white' : 'bg-white text-gray-800 shadow-sm'}`}>
-                            <p>{msg.text}</p>
-                        </div>
+                {loading ? (
+                    <div className="flex justify-center items-center h-full">
+                        <p className="text-gray-500">Cargando mensajes...</p>
                     </div>
-                ))}
+                ) : messages.length === 0 ? (
+                    <div className="flex justify-center items-center h-full">
+                        <p className="text-gray-500">No hay mensajes aún. ¡Envía el primero!</p>
+                    </div>
+                ) : (
+                    messages.map(msg => (
+                        <div key={msg.id} className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'} mb-3`}>
+                            <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${msg.sender === 'me' ? 'bg-teal-500 text-white' : 'bg-white text-gray-800 shadow-sm'}`}>
+                                <p>{msg.text}</p>
+                            </div>
+                        </div>
+                    ))
+                )}
             </div>
             <div className="p-4 border-t bg-white flex items-center">
                 <input
