@@ -4,7 +4,14 @@ import * as L from 'leaflet';
 import { tileLayerOffline, savetiles } from 'leaflet.offline';
 import { CATEGORIES } from '../constants';
 
-const Map = ({ pins, onPinClick, onMapReady }) => {
+// Log utility
+const logs = [];
+const addLog = (message) => {
+  logs.push(`${new Date().toLocaleTimeString()}: ${message}`);
+};
+
+const Map = ({ pins, onPinClick, onMapReady, userLocation }) => {
+  addLog('Map: component rendered');
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const userMarkerRef = useRef(null);
@@ -42,11 +49,25 @@ const Map = ({ pins, onPinClick, onMapReady }) => {
     return icons[category] || icons['Agua'];
   };
 
+  const mapReadyCalledRef = useRef(false);
+
   useEffect(() => {
+    addLog('Map: useEffect started');
     if (mapContainerRef.current && !mapRef.current) {
-      // Initialize map with default location
-      const map = L.map(mapContainerRef.current).setView([51.505, -0.09], 13);
+      addLog('Map: map container found, initializing map');
+      const initialView = userLocation || [51.505, -0.09];
+      const map = L.map(mapContainerRef.current).setView(initialView, 13);
       mapRef.current = map;
+
+      if (userLocation) {
+        const userIcon = L.divIcon({
+          className: 'user-location-marker',
+          html: '<div style="width: 16px; height: 16px; background-color: #4285f4; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+        userMarkerRef.current = L.marker(userLocation, { icon: userIcon }).addTo(map);
+      }
 
       const offlineLayer = tileLayerOffline('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -63,48 +84,55 @@ const Map = ({ pins, onPinClick, onMapReady }) => {
       offlineLayer.addTo(map);
       offlineControl.addTo(map);
 
-      // Get user's current location
+      const onLocationFound = (location) => {
+        if (mapReadyCalledRef.current) return;
+        mapReadyCalledRef.current = true;
+        addLog(`Map: location found: ${location}`);
+
+        userLocationRef.current = location;
+        map.setView(location, 15);
+
+        const userIcon = L.divIcon({
+          className: 'user-location-marker',
+          html: '<div style="width: 16px; height: 16px; background-color: #4285f4; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+
+        userMarkerRef.current = L.marker(location, { icon: userIcon }).addTo(map);
+
+        if (onMapReady) {
+          addLog('Map: calling onMapReady with location');
+          onMapReady({ map, userLocation: location });
+        }
+      };
+
+      const onLocationError = () => {
+        if (mapReadyCalledRef.current) return;
+        mapReadyCalledRef.current = true;
+        addLog('Map: location error. Using default.');
+        console.error('Could not get location. Using default.');
+        if (onMapReady) {
+          addLog('Map: calling onMapReady with default location');
+          onMapReady({ map, userLocation: [51.505, -0.09] });
+        }
+      };
+
+      addLog('Map: setting location timeout');
+      const locationTimeout = setTimeout(onLocationError, 10000);
+
       if (navigator.geolocation) {
+        addLog('Map: geolocation is available, calling getCurrentPosition');
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            const { latitude, longitude } = position.coords;
-            const userLocation = [latitude, longitude];
-            userLocationRef.current = userLocation;
-            
-            // Center map on user location
-            map.setView(userLocation, 15);
-            
-            // Create a custom icon for user location (blue dot)
-            const userIcon = L.divIcon({
-              className: 'user-location-marker',
-              html: '<div style="width: 16px; height: 16px; background-color: #4285f4; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>',
-              iconSize: [22, 22],
-              iconAnchor: [11, 11]
-            });
-            
-            // Add marker for user location
-            userMarkerRef.current = L.marker(userLocation, { icon: userIcon }).addTo(map);
-            
-            // Optional: Add accuracy circle
-            L.circle(userLocation, {
-              radius: position.coords.accuracy,
-              color: '#4285f4',
-              fillColor: '#4285f4',
-              fillOpacity: 0.1,
-              weight: 1
-            }).addTo(map);
-
-            // Notify parent that map is ready with user location
-            if (onMapReady) {
-              onMapReady({ map, userLocation });
-            }
+            addLog('Map: getCurrentPosition success');
+            clearTimeout(locationTimeout);
+            onLocationFound([position.coords.latitude, position.coords.longitude]);
           },
-          (error) => {
-            console.error('Error getting location:', error);
-            // Keep default location if geolocation fails
-            if (onMapReady) {
-              onMapReady({ map, userLocation: null });
-            }
+          () => {
+            addLog('Map: getCurrentPosition error');
+            clearTimeout(locationTimeout);
+            onLocationError();
           },
           {
             enableHighAccuracy: true,
@@ -113,10 +141,12 @@ const Map = ({ pins, onPinClick, onMapReady }) => {
           }
         );
       } else {
-        if (onMapReady) {
-          onMapReady({ map, userLocation: null });
-        }
+        addLog('Map: geolocation is not available');
+        clearTimeout(locationTimeout);
+        onLocationError();
       }
+    } else {
+      addLog('Map: useEffect finished without initializing map');
     }
   }, [onMapReady]);
 

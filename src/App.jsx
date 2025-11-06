@@ -1,4 +1,36 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
+
+// Log utility
+const logs = [];
+const addLog = (message) => {
+  logs.push(`${new Date().toLocaleTimeString()}: ${message}`);
+  // In a real app, you'd want to manage the size of this array
+  // and update the UI through state.
+};
+
+function LogPanel({ onClose }) {
+  const [visibleLogs, setVisibleLogs] = useState([]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisibleLogs([...logs]);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '200px', backgroundColor: 'rgba(0,0,0,0.8)', color: 'white', overflowY: 'scroll', padding: '10px', zIndex: 9999, fontFamily: 'monospace' }}>
+      <button onClick={onClose} style={{ position: 'absolute', top: '5px', right: '10px', background: 'none', border: 'none', color: 'white', fontSize: '1.2em', cursor: 'pointer' }}>X</button>
+      <h2>Logs</h2>
+      <ul>
+        {visibleLogs.map((log, index) => (
+          <li key={index}>{log}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 import { CATEGORIES } from './constants';
 import { pinService, userService } from './services/firebase';
 import { PinCreationModal } from './components/PinCreationModal';
@@ -12,13 +44,17 @@ import { ActionButtons } from './components/ActionButtons';
 import { NearbyPinsDrawer } from './components/NearbyPinsDrawer';
 import Map from './components/Map';
 
-function LoadingScreen() {
+function LoadingScreen({ message }) {
     return (
-        <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="animate-pulse-slow">
-                <svg className="w-16 h-16 mx-auto text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                <h1 className="text-2xl font-bold text-gray-800 mt-4">Conectando a Enjambre</h1>
-                <p className="text-gray-600 mt-2">Estableciendo conexión segura...</p>
+        <div className="h-screen w-screen bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white/30 backdrop-blur-lg rounded-2xl shadow-2xl p-8 text-center text-white">
+                <div className="flex justify-center items-center space-x-2">
+                    <div className="w-4 h-4 bg-white rounded-full animate-bounce-1"></div>
+                    <div className="w-4 h-4 bg-white rounded-full animate-bounce-2"></div>
+                    <div className="w-4 h-4 bg-white rounded-full animate-bounce-3"></div>
+                </div>
+                <h1 className="text-3xl font-bold text-white mt-6">Enjambre</h1>
+                <p className="text-lg text-white/80 mt-2">{message}</p>
             </div>
         </div>
     );
@@ -37,28 +73,10 @@ function ErrorScreen({ message }) {
     );
 }
 
-function AuthenticatedScreen({ userId, onContinue }) {
-    return (
-        <div className="h-screen w-screen bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center p-4 animate-fadeIn">
-            <div className="max-w-md w-full bg-white/30 backdrop-blur-lg rounded-2xl shadow-2xl p-8 text-center text-white animate-fadeIn" style={{animationDelay: '0.2s'}}>
-                <div className="w-24 h-24 mx-auto bg-green-500/80 rounded-full flex items-center justify-center animate-icon-pop-in" style={{animationDelay: '0.4s'}}>
-                    <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                </div>
-                <h1 className="text-5xl font-bold text-white mt-6 animate-fadeIn" style={{animationDelay: '0.6s'}}>Enjambre</h1>
-                <p className="text-lg text-white/80 mt-2 animate-fadeIn" style={{animationDelay: '0.8s'}}>Estás conectado a la red de apoyo mutuo.</p>
-                <div className="mt-8 bg-black/20 p-4 rounded-lg animate-fadeIn" style={{animationDelay: '1s'}}>
-                    <p className="text-sm text-white/60">Tu identificador anónimo:</p>
-                    <p className="text-lg font-mono text-white break-all mt-1">{userId}</p>
-                </div>
-                <button onClick={onContinue} className="mt-8 w-full bg-white/90 hover:bg-white text-orange-500 font-bold py-3 px-6 rounded-lg text-lg shadow-lg transform hover:scale-105 transition-transform duration-300 animate-fadeIn" style={{animationDelay: '1.2s'}}>
-                    Continuar
-                </button>
-            </div>
-        </div>
-    );
-}
 
-function AuthenticatedApp({ userId }) {
+
+function AuthenticatedApp({ userId, userLocation, onMapReady }) {
+  addLog('AuthenticatedApp rendered');
   const [view, setView] = useState('map'); // map, myPins, pinInfo, conversations, chat
   const [pins, setPins] = useState([]);
   const [isRequestModalOpen, setRequestModalOpen] = useState(false);
@@ -69,7 +87,6 @@ function AuthenticatedApp({ userId }) {
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [isFilterPanelOpen, setFilterPanelOpen] = useState(false);
   const [mapReady, setMapReady] = useState(false);
-  const [userLocation, setUserLocation] = useState(null);
   const [userAlias, setUserAlias] = useState(null);
   
   const initialFilters = {
@@ -122,27 +139,15 @@ function AuthenticatedApp({ userId }) {
     initUserProfile();
   }, [userId]);
 
-  // Initialize pins subscription when map is ready
-  const handleMapReady = ({ map, userLocation: userLoc }) => {
-    setMapReady(true);
-    setUserLocation(userLoc);
-  };
-
-  // Subscribe to pins from Firebase
   useEffect(() => {
-    if (!mapReady) return;
-    
-    const unsubscribe = pinService.subscribeToPins((firestorePins) => {
-      // Mark pins as 'me' or 'other' based on userId
-      const pinsWithUser = firestorePins.map(pin => ({
-        ...pin,
-        user: pin.userId === userId ? 'me' : 'other'
-      }));
-      setPins(pinsWithUser);
+    const unsubscribe = pinService.subscribeToPins((newPins) => {
+      setPins(newPins);
     }, userLocation);
 
     return () => unsubscribe();
-  }, [mapReady, userId, userLocation]);
+  }, [userLocation]);
+
+
 
   const userPins = pins.filter(p => p.user === 'me');
 
@@ -270,10 +275,14 @@ function AuthenticatedApp({ userId }) {
       return true;
   });
     
+  if (!userLocation) {
+    return <LoadingScreen message="Obteniendo ubicación..." />;
+  }
+    
   return (
     <div className="h-screen w-screen bg-gray-200 flex flex-col font-sans overflow-hidden">
       <div className="relative flex-grow w-full h-full bg-cover bg-center">
-        <Map pins={filteredPins} onPinClick={handlePinClick} onMapReady={handleMapReady} />
+        <Map pins={filteredPins} onPinClick={handlePinClick} onMapReady={onMapReady} userLocation={userLocation} />
         
         <Header 
             isOnline={isOnline} 
@@ -314,19 +323,25 @@ function AuthenticatedApp({ userId }) {
 }
 
 export default function App() {
+    addLog('App component rendered');
     const [loading, setLoading] = useState(true);
     const [user, setUser] = useState(null);
     const [error, setError] = useState(null);
-    const [authCompleted, setAuthCompleted] = useState(false);
+    const [userLocation, setUserLocation] = useState(null);
+    const [showLogs, setShowLogs] = useState(true);
 
     useEffect(() => {
+        addLog('App: useEffect for auth started');
         const auth = window.firebase.auth();
         const unsubscribe = auth.onAuthStateChanged((currentUser) => {
             if (currentUser) {
+                addLog('App: onAuthStateChanged: user found');
                 setUser(currentUser);
                 setLoading(false);
             } else {
+                addLog('App: onAuthStateChanged: no user, signing in anonymously');
                 auth.signInAnonymously().catch(err => {
+                    addLog(`App: signInAnonymously error: ${err.message}`);
                     console.error("Fallo el inicio de sesión anónimo:", err);
                     setError("No se pudo conectar a la red. Revisa tu conexión a internet.");
                     setLoading(false);
@@ -334,21 +349,43 @@ export default function App() {
             }
         });
 
-        return () => unsubscribe();
+        return () => {
+            addLog('App: useEffect for auth cleaned up');
+            unsubscribe();
+        };
     }, []);
 
+    const handleMapReady = ({ map, userLocation: loc }) => {
+        addLog(`App: handleMapReady called with location: ${loc}`)
+        setUserLocation(loc);
+    };
+
+    const renderLogPanel = () => {
+        if (showLogs) {
+            return <LogPanel onClose={() => setShowLogs(false)} />;
+        }
+        return null;
+    };
+
     if (loading) {
-        return <LoadingScreen />;
+        addLog('App: rendering LoadingScreen (auth)');
+        return <><LoadingScreen message="Conectando a Enjambre..." />{renderLogPanel()}</>;
     }
     if (error) {
-        return <ErrorScreen message={error} />;
+        addLog(`App: rendering ErrorScreen with message: ${error}`);
+        return <><ErrorScreen message={error} />{renderLogPanel()}</>;
     }
     if (user) {
-        if (authCompleted) {
-            return <AuthenticatedApp userId={user.uid} />;
+        if (userLocation) {
+            addLog('App: rendering AuthenticatedApp');
+            return <><AuthenticatedApp userId={user.uid} userLocation={userLocation} onMapReady={handleMapReady} />{renderLogPanel()}</>;
+        } else {
+            addLog('App: rendering LoadingScreen (location)');
+            // Pass a dummy onMapReady to the Map component to trigger location fetching
+            return <><LoadingScreen message="Obteniendo ubicación..." /><div style={{display: 'none'}}><Map onMapReady={handleMapReady} pins={[]} /></div>{renderLogPanel()}</>;
         }
-        return <AuthenticatedScreen userId={user.uid} onContinue={() => setAuthCompleted(true)} />;
     }
     
-    return <ErrorScreen message="Ha ocurrido un error inesperado." />;
+    addLog('App: rendering fallback ErrorScreen');
+    return <><ErrorScreen message="Ha ocurrido un error inesperado." />{renderLogPanel()}</>;
 }
