@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import 'leaflet/dist/leaflet.css';
 import * as L from 'leaflet';
 import { tileLayerOffline, savetiles } from 'leaflet.offline';
 import { CATEGORIES } from '../constants';
+import { DownloadNotification } from './DownloadNotification';
 
 // Log utility
 const logs = [];
@@ -10,13 +11,33 @@ const addLog = (message) => {
   logs.push(`${new Date().toLocaleTimeString()}: ${message}`);
 };
 
-const Map = ({ pins, onPinClick, onMapReady, userLocation }) => {
+const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadStateChange }) => {
   addLog('Map: component rendered');
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const userMarkerRef = useRef(null);
   const userLocationRef = useRef(null);
   const pinMarkersRef = useRef({});
+  const offlineControlRef = useRef(null);
+  const offlineLayerRef = useRef(null);
+  const hasDownloadedRef = useRef(false);
+
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadTotal, setDownloadTotal] = useState(0);
+  const [showDownloadComplete, setShowDownloadComplete] = useState(false);
+
+  // Notify parent of download state changes
+  useEffect(() => {
+    if (onDownloadStateChange) {
+      onDownloadStateChange({
+        isDownloading,
+        downloadProgress,
+        downloadTotal,
+        showDownloadComplete
+      });
+    }
+  }, [isDownloading, downloadProgress, downloadTotal, showDownloadComplete, onDownloadStateChange]);
 
   // Create custom icon for pins
   const createPinIcon = (pin) => {
@@ -56,7 +77,9 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation }) => {
     if (mapContainerRef.current && !mapRef.current) {
       addLog('Map: map container found, initializing map');
       const initialView = userLocation || [51.505, -0.09];
-      const map = L.map(mapContainerRef.current).setView(initialView, 13);
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: false // Disable default zoom controls
+      }).setView(initialView, 13);
       mapRef.current = map;
 
       if (userLocation) {
@@ -72,17 +95,71 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation }) => {
       const offlineLayer = tileLayerOffline('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         subdomains: 'abc',
-        minZoom: 13,
-        maxZoom: 19,
+        minZoom: 11,
+        maxZoom: 16,
       });
+      offlineLayerRef.current = offlineLayer;
+
+      // Calculate bounds for 3km radius around user location
+      const getBoundsFor3kmRadius = (center) => {
+        // Approximate: 1 degree latitude ≈ 111km
+        const latOffset = 3 / 111; // 3km in degrees
+        const lngOffset = 3 / (111 * Math.cos(center[0] * Math.PI / 180));
+        
+        return L.latLngBounds(
+          [center[0] - latOffset, center[1] - lngOffset],
+          [center[0] + latOffset, center[1] + lngOffset]
+        );
+      };
 
       const offlineControl = savetiles(offlineLayer, {
-        saveText: '<span class="fa fa-download" aria-hidden="true"></span>',
-        rmText: '<span class="fa fa-trash" aria-hidden="true"></span>',
+        saveText: '<i class="fa fa-download"></i> Descargar Mapa',
+        rmText: '<i class="fa fa-trash"></i> Eliminar',
+        maxZoom: 16,
+        saveWhatYouSee: false,
+        bounds: null, // Will be set dynamically
+        confirm: null,
+        confirmRemoval: null,
+        parallel: 10, // Download 10 tiles in parallel
+        zoomlevels: [13, 14, 15, 16], // Download these zoom levels
+        alwaysDownload: false
       });
+      offlineControlRef.current = offlineControl;
 
       offlineLayer.addTo(map);
-      offlineControl.addTo(map);
+      offlineControl.addTo(map); // Must be added to map for _calculateTiles() to work
+
+      // Event listeners for download progress - attach to baseLayer, not control
+      offlineLayer.on('savestart', (e) => {
+        console.log('Download started:', e);
+        setIsDownloading(true);
+        setDownloadTotal(e.lengthToBeSaved || 0);
+        setDownloadProgress(0);
+      });
+
+      offlineLayer.on('loadtileend', () => {
+        setDownloadProgress(prev => prev + 1);
+      });
+
+      offlineLayer.on('savetileend', () => {
+        // Tile saved to IndexedDB
+      });
+
+      offlineLayer.on('saveend', () => {
+        console.log('Download completed');
+        setIsDownloading(false);
+        hasDownloadedRef.current = true;
+        setShowDownloadComplete(true);
+        // Auto-dismiss success message after 5 seconds
+        setTimeout(() => {
+          setShowDownloadComplete(false);
+        }, 5000);
+      });
+
+      offlineLayer.on('tilesremoved', () => {
+        console.log('Tiles removed from storage');
+        hasDownloadedRef.current = false;
+      });
 
       const onLocationFound = (location) => {
         if (mapReadyCalledRef.current) return;
@@ -101,9 +178,21 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation }) => {
 
         userMarkerRef.current = L.marker(location, { icon: userIcon }).addTo(map);
 
+        // Set bounds for offline download (3km radius)
+        const bounds = getBoundsFor3kmRadius(location);
+        offlineControl.options.bounds = bounds;
+
         if (onMapReady) {
           addLog('Map: calling onMapReady with location');
           onMapReady({ map, userLocation: location });
+        }
+
+        // Auto-download map tiles when location is found and online
+        if (isOnline && !hasDownloadedRef.current) {
+          console.log('Starting automatic map download for 3km radius...');
+          setTimeout(() => {
+            offlineControl._saveTiles();
+          }, 2000); // Wait 2 seconds before starting download
         }
       };
 
@@ -187,7 +276,39 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation }) => {
     });
   }, [pins, onPinClick]);
 
-  return <div ref={mapContainerRef} style={{ height: '100%', width: '100%', zIndex: 0 }}></div>;
+  // Monitor online/offline status changes
+  useEffect(() => {
+    if (isOnline && userLocationRef.current && offlineControlRef.current && !hasDownloadedRef.current) {
+      // When coming back online and haven't downloaded yet, start download
+      console.log('Back online - starting map download if not done yet...');
+      const bounds = offlineControlRef.current.options.bounds;
+      if (!bounds && userLocationRef.current) {
+        // Calculate and set bounds if not set
+        const latOffset = 3 / 111;
+        const lngOffset = 3 / (111 * Math.cos(userLocationRef.current[0] * Math.PI / 180));
+        offlineControlRef.current.options.bounds = L.latLngBounds(
+          [userLocationRef.current[0] - latOffset, userLocationRef.current[1] - lngOffset],
+          [userLocationRef.current[0] + latOffset, userLocationRef.current[1] + lngOffset]
+        );
+      }
+      setTimeout(() => {
+        offlineControlRef.current._saveTiles();
+      }, 1000);
+    }
+  }, [isOnline]);
+
+  return (
+    <div ref={mapContainerRef} style={{ height: '100%', width: '100%', zIndex: 0 }}>
+      {!isOnline && (
+        <div className="absolute top-20 left-4 bg-yellow-400 text-gray-800 p-3 rounded-lg shadow-lg z-50 flex items-center">
+          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+          </svg>
+          <span className="font-semibold">Modo sin conexión</span>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default Map;

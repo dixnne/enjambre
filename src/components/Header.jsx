@@ -1,6 +1,6 @@
 import { FilterIcon } from './icons';
 
-export const Header = ({ isOnline, setIsOnline, setFilterPanelOpen, setView }) => {
+export const Header = ({ isOnline, setIsOnline, setFilterPanelOpen, setView, unreadCount = 0 }) => {
     return (
         <header className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-20">
             <div className="flex items-center space-x-2">
@@ -15,8 +15,16 @@ export const Header = ({ isOnline, setIsOnline, setFilterPanelOpen, setView }) =
                     <FilterIcon className="w-5 h-5"/>
                 </button>
             </div>
-          <button onClick={() => setView('myPins')} className="bg-white px-4 py-2 rounded-full shadow-md font-semibold text-gray-700 hover:bg-gray-50 transition">
+          <button onClick={() => setView('myPins')} className="relative bg-white px-4 py-2 rounded-full shadow-md font-semibold text-gray-700 hover:bg-gray-50 transition">
             Mis pines
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+          <button onClick={() => setView('attending')} className="bg-white px-4 py-2 rounded-full shadow-md font-semibold text-gray-700 hover:bg-gray-50 transition">
+            Atendiendo
           </button>
         </header>
     );

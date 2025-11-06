@@ -33,8 +33,10 @@ function LogPanel({ onClose }) {
 
 import { CATEGORIES } from './constants';
 import { pinService, userService } from './services/firebase';
+import { SetAliasScreen } from './components/SetAliasScreen';
 import { PinCreationModal } from './components/PinCreationModal';
 import { PinInfoScreen } from './components/PinInfoScreen';
+import { AttendingPinsScreen } from './components/AttendingPinsScreen';
 import { ConversationsListScreen } from './components/ConversationsListScreen';
 import { ChatScreen } from './components/ChatScreen';
 import { MyPinsScreen } from './components/MyPinsScreen';
@@ -42,6 +44,8 @@ import { FilterPanel } from './components/FilterPanel';
 import { Header } from './components/Header';
 import { ActionButtons } from './components/ActionButtons';
 import { NearbyPinsDrawer } from './components/NearbyPinsDrawer';
+import { ToastNotification } from './components/ToastNotification';
+import { DownloadNotification } from './components/DownloadNotification';
 import Map from './components/Map';
 
 function LoadingScreen({ message }) {
@@ -77,7 +81,7 @@ function ErrorScreen({ message }) {
 
 function AuthenticatedApp({ userId, userLocation, onMapReady }) {
   addLog('AuthenticatedApp rendered');
-  const [view, setView] = useState('map'); // map, myPins, pinInfo, conversations, chat
+  const [view, setView] = useState('map'); // map, myPins, attending, pinInfo, conversations, chat
   const [pins, setPins] = useState([]);
   const [isRequestModalOpen, setRequestModalOpen] = useState(false);
   const [isOfferModalOpen, setOfferModalOpen] = useState(false);
@@ -88,6 +92,23 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
   const [isFilterPanelOpen, setFilterPanelOpen] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [userAlias, setUserAlias] = useState(null);
+  const [isAliasLoading, setIsAliasLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState([]);
+  const [downloadState, setDownloadState] = useState({
+    isDownloading: false,
+    downloadProgress: 0,
+    downloadTotal: 0,
+    showDownloadComplete: false
+  });
+  const [isDownloadExpanded, setIsDownloadExpanded] = useState(false);
+
+  // Auto-collapse download notification when it completes
+  useEffect(() => {
+    if (!downloadState.isDownloading && isDownloadExpanded) {
+      setIsDownloadExpanded(false);
+    }
+  }, [downloadState.isDownloading, isDownloadExpanded]);
   
   const initialFilters = {
       categories: Object.keys(CATEGORIES).reduce((acc, cat) => ({...acc, [cat]: true }), {}),
@@ -122,34 +143,95 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
   // Initialize user profile
   useEffect(() => {
     const initUserProfile = async () => {
+      addLog('initUserProfile started');
       try {
         let profile = await userService.getUserProfile(userId);
-        if (!profile) {
-          const alias = userService.generateUserAlias();
-          await userService.updateUserProfile(userId, { alias });
-          setUserAlias(alias);
-        } else {
+        addLog(`User profile: ${JSON.stringify(profile)}`);
+        if (profile && profile.alias) {
+          addLog(`Alias found: ${profile.alias}`);
           setUserAlias(profile.alias);
+        } else {
+          addLog('No alias found, showing SetAliasScreen');
+          setUserAlias(null); // Show SetAliasScreen
         }
       } catch (error) {
+        addLog(`Error initializing user profile: ${error.message}`);
         console.error('Error initializing user profile:', error);
-        setUserAlias(userService.generateUserAlias());
+        setUserAlias(null); // Show SetAliasScreen on error too
+      } finally {
+        addLog('initUserProfile finished');
+        setIsAliasLoading(false);
       }
     };
     initUserProfile();
   }, [userId]);
 
+  const handleAliasSet = async (alias) => {
+    try {
+      await userService.updateUserProfile(userId, { alias });
+      setUserAlias(alias);
+    } catch (error) {
+      console.error('Error setting user alias:', error);
+      alert('Error al guardar tu nombre. Intenta de nuevo.');
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = pinService.subscribeToPins((newPins) => {
       setPins(newPins);
-    }, userLocation);
+    }, userLocation, userId);
 
     return () => unsubscribe();
   }, [userLocation]);
 
+  // Subscribe to unread count
+  useEffect(() => {
+    const unsubscribe = pinService.subscribeToUnreadCount(userId, (count) => {
+      setUnreadCount(count);
+    });
+
+    // Periodic refresh every 30 seconds as a fallback
+    const refreshInterval = setInterval(() => {
+      // The subscription will automatically update, but this ensures
+      // we catch any missed updates
+      pinService.subscribeToUnreadCount(userId, (count) => {
+        setUnreadCount(count);
+      });
+    }, 30000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(refreshInterval);
+    };
+  }, [userId]);
+
+  // Subscribe to new messages for notifications
+  useEffect(() => {
+    const unsubscribe = pinService.subscribeToNewMessages(userId, (notification) => {
+      // Don't show notification if the conversation is currently open
+      if (view === 'chat' && 
+          selectedConversation && 
+          selectedConversation.id === notification.conversationId &&
+          selectedPin &&
+          selectedPin.id === notification.pinId) {
+        return; // Skip notification if this conversation is open
+      }
+
+      // Add notification to the list
+      const newNotification = {
+        id: `${notification.pinId}-${notification.conversationId}-${Date.now()}`,
+        message: `${notification.userAlias} ha respondido a tu pin de ${notification.pinCategory}`
+      };
+      setNotifications(prev => [...prev, newNotification]);
+    });
+
+    return () => unsubscribe();
+  }, [userId, view, selectedConversation, selectedPin]);
+
 
 
   const userPins = pins.filter(p => p.user === 'me');
+  const attendingPins = pins.filter(p => p.attending);
 
   const handlePublish = async (pinData) => {
     try {
@@ -218,7 +300,7 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
         const conversation = await pinService.addConversation(
           pin.id, 
           userId, 
-          userAlias || 'Vecino#0000',
+          userAlias,
           initialMessage
         );
         setSelectedPin({ ...pin, conversations: [conversation] });
@@ -266,7 +348,23 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
       setView('chat');
   }
 
+  const handleMarkConversationAsRead = () => {
+      // Mark as read when viewing the conversation
+      if (selectedPin && selectedConversation && selectedConversation.unreadByOwner) {
+        pinService.markConversationAsRead(selectedPin.id, selectedConversation.id);
+      }
+  };
+
+  const handleViewConversation = (pin) => {
+    handleAttend(pin);
+  }
+
+  const removeNotification = (notificationId) => {
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+  };
+
   const filteredPins = pins.filter(pin => {
+      if(pin.attending) return false; // Don't show pins the user is attending
       if (!pin.latLng || !userLocation) return true; // Show all if no location
       const distanceNum = calculateDistance(userLocation, pin.latLng);
       if (distanceNum > filters.radius) return false;
@@ -275,20 +373,32 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
       return true;
   });
     
-  if (!userLocation) {
-    return <LoadingScreen message="Obteniendo ubicación..." />;
+  if (!userLocation || isAliasLoading) {
+    return <LoadingScreen message={isAliasLoading ? "Cargando perfil..." : "Obteniendo ubicación..."} />;
+  }
+
+  if (!userAlias) {
+    return <SetAliasScreen onAliasSet={handleAliasSet} />;
   }
     
   return (
     <div className="h-screen w-screen bg-gray-200 flex flex-col font-sans overflow-hidden">
       <div className="relative flex-grow w-full h-full bg-cover bg-center">
-        <Map pins={filteredPins} onPinClick={handlePinClick} onMapReady={onMapReady} userLocation={userLocation} />
+        <Map 
+          pins={filteredPins} 
+          onPinClick={handlePinClick} 
+          onMapReady={onMapReady} 
+          userLocation={userLocation} 
+          isOnline={isOnline}
+          onDownloadStateChange={setDownloadState}
+        />
         
         <Header 
             isOnline={isOnline} 
             setIsOnline={setIsOnline} 
             setFilterPanelOpen={setFilterPanelOpen} 
-            setView={setView} 
+            setView={setView}
+            unreadCount={unreadCount}
         />
         
         {view === 'map' && (
@@ -305,15 +415,51 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
                 filteredPins={filteredPins} 
                 handleAttend={handleAttend} 
             />
+
+            {/* Map Download Notifications - positioned above action buttons */}
+            {downloadState.isDownloading && (
+              <div className="absolute bottom-56 right-4 z-[60]">
+                <DownloadNotification 
+                  progress={downloadState.downloadProgress} 
+                  total={downloadState.downloadTotal}
+                  isExpanded={isDownloadExpanded}
+                  onToggleExpanded={() => setIsDownloadExpanded(!isDownloadExpanded)}
+                />
+              </div>
+            )}
+            {downloadState.showDownloadComplete && (
+              <div className="absolute bottom-56 right-4 bg-green-500 text-white p-4 rounded-lg shadow-xl z-[60] animate-fadeIn">
+                <div className="flex items-center">
+                  <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                  <div>
+                    <p className="font-bold">¡Mapa descargado!</p>
+                    <p className="text-sm">Disponible sin conexión</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
         
         {view === 'myPins' && <MyPinsScreen userPins={userPins} pendingPins={[]} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} />}
+        {view === 'attending' && <AttendingPinsScreen attendingPins={attendingPins} onBack={goBackToMap} onViewConversation={handleViewConversation} />}
         {view === 'pinInfo' && selectedPin && <PinInfoScreen pin={selectedPin} onBack={goBackToMap} onAttend={handleAttend} isMyPin={selectedPin.user === 'me'} onResolve={handleResolvePin} onViewConversations={handleViewConversations} />}
         {view === 'conversations' && <ConversationsListScreen pin={selectedPin} onBack={() => setView('pinInfo')} onSelectConversation={handleSelectConversation} />}
-        {view === 'chat' && <ChatScreen pin={selectedPin} conversation={selectedConversation} userId={userId} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} />}
+        {view === 'chat' && <ChatScreen pin={selectedPin} conversation={selectedConversation} userId={userId} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} onMarkAsRead={handleMarkConversationAsRead} />}
 
       </div>
+
+      {/* Toast Notifications */}
+      {notifications.map((notification, index) => (
+        <div key={notification.id} style={{ top: `${80 + (index * 80)}px` }} className="absolute">
+          <ToastNotification
+            message={notification.message}
+            onClose={() => removeNotification(notification.id)}
+          />
+        </div>
+      ))}
 
       {isRequestModalOpen && <PinCreationModal type="need" onClose={() => setRequestModalOpen(false)} onPublish={handlePublish} />}
       {isOfferModalOpen && <PinCreationModal type="offer" onClose={() => setOfferModalOpen(false)} onPublish={handlePublish} />}

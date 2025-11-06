@@ -51,10 +51,11 @@ export const pinService = {
         ...pinData,
         userId,
         resolved: false,
+        attendees: [],
         createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
         updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
       });
-      return { id: docRef.id, ...pinData, userId, resolved: false };
+      return { id: docRef.id, ...pinData, userId, resolved: false, attendees: [] };
     } catch (error) {
       console.error('Error creating pin:', error);
       throw error;
@@ -62,7 +63,7 @@ export const pinService = {
   },
 
   // Listen to pins in real-time
-  subscribeToPins(callback, userLocation = null) {
+  subscribeToPins(callback, userLocation = null, currentUserId = null) {
     return db.collection(PINS_COLLECTION)
       .where('resolved', '==', false)
       .orderBy('createdAt', 'desc')
@@ -79,7 +80,8 @@ export const pinService = {
               distance: userLocation && data.latLng 
                 ? `${calculateDistance(userLocation, data.latLng).toFixed(1)} km`
                 : data.distance || '0 km',
-              user: data.userId ? 'other' : 'other' // Will be updated based on current user
+              user: data.userId === currentUserId ? 'me' : 'other',
+              attending: data.attendees && data.attendees.includes(currentUserId)
             };
             pins.push(pin);
           });
@@ -148,6 +150,11 @@ export const pinService = {
   // Add a conversation to a pin
   async addConversation(pinId, userId, userAlias, initialMessage) {
     try {
+      // Add user to attendees list
+      await db.collection(PINS_COLLECTION).doc(pinId).update({
+        attendees: window.firebase.firestore.FieldValue.arrayUnion(userId)
+      });
+
       const conversationRef = await db.collection(PINS_COLLECTION)
         .doc(pinId)
         .collection('conversations')
@@ -155,6 +162,7 @@ export const pinService = {
           userId,
           userAlias,
           lastMessage: initialMessage,
+          unreadByOwner: true, // Mark as unread for pin owner
           createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -177,6 +185,7 @@ export const pinService = {
         userId,
         userAlias,
         lastMessage: initialMessage,
+        unreadByOwner: true,
         messages: [{ id: '1', text: initialMessage, sender: 'other' }]
       };
     } catch (error) {
@@ -221,19 +230,137 @@ export const pinService = {
           createdAt: window.firebase.firestore.FieldValue.serverTimestamp()
         });
       
-      // Update last message in conversation
+      // Get the pin and conversation to determine who to mark as unread
+      const pinDoc = await db.collection(PINS_COLLECTION).doc(pinId).get();
+      const pinOwnerId = pinDoc.data().userId;
+      
+      // Update last message in conversation and mark as unread for the recipient
       await db.collection(PINS_COLLECTION)
         .doc(pinId)
         .collection('conversations')
         .doc(conversationId)
         .update({
           lastMessage: messageData.text,
-          updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+          updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+          // Mark as unread for the owner if sender is not the owner
+          unreadByOwner: messageData.senderId !== pinOwnerId
         });
     } catch (error) {
       console.error('Error adding message:', error);
       throw error;
     }
+  },
+
+  // Mark conversation as read by owner
+  async markConversationAsRead(pinId, conversationId) {
+    try {
+      await db.collection(PINS_COLLECTION)
+        .doc(pinId)
+        .collection('conversations')
+        .doc(conversationId)
+        .update({
+          unreadByOwner: false
+        });
+    } catch (error) {
+      console.error('Error marking conversation as read:', error);
+      throw error;
+    }
+  },
+
+  // Subscribe to unread conversations count for user's pins
+  subscribeToUnreadCount(userId, callback) {
+    return db.collection(PINS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('resolved', '==', false)
+      .onSnapshot(
+        async (snapshot) => {
+          let totalUnread = 0;
+          const promises = [];
+          
+          snapshot.forEach(doc => {
+            const promise = db.collection(PINS_COLLECTION)
+              .doc(doc.id)
+              .collection('conversations')
+              .where('unreadByOwner', '==', true)
+              .get()
+              .then(convSnapshot => convSnapshot.size);
+            promises.push(promise);
+          });
+          
+          const counts = await Promise.all(promises);
+          totalUnread = counts.reduce((sum, count) => sum + count, 0);
+          callback(totalUnread);
+        },
+        (error) => {
+          console.error('Error in unread count subscription:', error);
+          callback(0);
+        }
+      );
+  },
+
+  // Subscribe to new messages for pin owner
+  subscribeToNewMessages(userId, callback) {
+    const conversationListeners = new Map();
+    
+    const mainUnsubscribe = db.collection(PINS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('resolved', '==', false)
+      .onSnapshot(
+        (snapshot) => {
+          snapshot.forEach(doc => {
+            const pinId = doc.id;
+            const pinData = doc.data();
+            
+            // Skip if already listening to this pin's conversations
+            if (conversationListeners.has(pinId)) {
+              return;
+            }
+            
+            // Listen to conversations for this pin
+            const convUnsubscribe = db.collection(PINS_COLLECTION)
+              .doc(pinId)
+              .collection('conversations')
+              .where('unreadByOwner', '==', true)
+              .onSnapshot((convSnapshot) => {
+                convSnapshot.docChanges().forEach(convChange => {
+                  if (convChange.type === 'modified') {
+                    const convData = convChange.doc.data();
+                    if (convData.unreadByOwner) {
+                      callback({
+                        pinId,
+                        pinCategory: pinData.category,
+                        conversationId: convChange.doc.id,
+                        userAlias: convData.userAlias,
+                        lastMessage: convData.lastMessage
+                      });
+                    }
+                  }
+                });
+              });
+            
+            conversationListeners.set(pinId, convUnsubscribe);
+          });
+          
+          // Clean up listeners for pins that were removed
+          conversationListeners.forEach((unsubscribe, pinId) => {
+            const stillExists = snapshot.docs.some(doc => doc.id === pinId);
+            if (!stillExists) {
+              unsubscribe();
+              conversationListeners.delete(pinId);
+            }
+          });
+        },
+        (error) => {
+          console.error('Error in new messages subscription:', error);
+        }
+      );
+    
+    // Return cleanup function
+    return () => {
+      mainUnsubscribe();
+      conversationListeners.forEach(unsubscribe => unsubscribe());
+      conversationListeners.clear();
+    };
   }
 };
 
@@ -264,11 +391,5 @@ export const userService = {
       console.error('Error getting user profile:', error);
       throw error;
     }
-  },
-
-  // Generate user alias
-  generateUserAlias() {
-    const number = Math.floor(1000 + Math.random() * 9000);
-    return `Vecino#${number}`;
   }
 };

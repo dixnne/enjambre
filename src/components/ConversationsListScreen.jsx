@@ -16,7 +16,7 @@ export const ConversationsListScreen = ({ pin, onBack, onSelectConversation }) =
             <div className="flex-grow p-4 overflow-y-auto space-y-3">
                 {pin.conversations && pin.conversations.length > 0 ? (
                     pin.conversations.map(convo => (
-                        <button key={convo.id} onClick={() => onSelectConversation(convo)} className="w-full bg-white p-4 rounded-lg shadow-sm flex items-center text-left hover:bg-gray-50">
+                        <button key={convo.id} onClick={() => onSelectConversation(convo)} className="relative w-full bg-white p-4 rounded-lg shadow-sm flex items-center text-left hover:bg-gray-50">
                             <div className="p-3 bg-gray-200 rounded-full mr-4">
                                 <UserIcon className="w-6 h-6 text-gray-600"/>
                             </div>
@@ -24,6 +24,11 @@ export const ConversationsListScreen = ({ pin, onBack, onSelectConversation }) =
                                 <p className="font-bold">{convo.userAlias}</p>
                                 <p className="text-sm text-gray-500 truncate">{convo.lastMessage}</p>
                             </div>
+                            {convo.unreadByOwner && (
+                                <div className="flex-shrink-0 ml-2">
+                                    <span className="w-3 h-3 bg-red-500 rounded-full inline-block"></span>
+                                </div>
+                            )}
                         </button>
                     ))
                 ) : (

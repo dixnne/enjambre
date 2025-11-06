@@ -3,7 +3,7 @@ import { ArrowLeftIcon } from './icons';
 import { pinService } from '../services/firebase';
 
 // --- Pantalla de Chat ---
-export const ChatScreen = ({ pin, conversation, userId, onBack }) => {
+export const ChatScreen = ({ pin, conversation, userId, onBack, onMarkAsRead }) => {
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -27,10 +27,16 @@ export const ChatScreen = ({ pin, conversation, userId, onBack }) => {
             }
         );
 
-        return () => unsubscribe();
-    }, [pin, conversation, userId]);
+        // Mark as read when component mounts
+        if (onMarkAsRead && conversation.unreadByOwner) {
+            onMarkAsRead();
+        }
 
-    const handleSend = async () => {
+        return () => unsubscribe();
+    }, [pin, conversation, userId, onMarkAsRead]);
+
+    const handleSend = async (e) => {
+        e.preventDefault();
         if (newMessage.trim() === '' || !pin || !conversation) return;
         
         try {
@@ -76,19 +82,18 @@ export const ChatScreen = ({ pin, conversation, userId, onBack }) => {
                     ))
                 )}
             </div>
-            <div className="p-4 border-t bg-white flex items-center">
+            <form onSubmit={handleSend} className="p-4 border-t bg-white flex items-center">
                 <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSend()}
                     placeholder="Escribe un mensaje..."
                     className="flex-grow p-3 border-2 border-gray-200 rounded-full focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                 />
-                <button onClick={handleSend} className="ml-3 bg-teal-500 text-white p-3 rounded-full hover:bg-teal-600 transition-colors">
+                <button type="submit" className="ml-3 bg-teal-500 text-white p-3 rounded-full hover:bg-teal-600 transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                 </button>
-            </div>
+            </form>
         </div>
     );
 };
