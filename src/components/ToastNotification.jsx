@@ -1,6 +1,25 @@
 import { useEffect } from 'preact/hooks';
+import { SuccessIcon, ErrorIcon, InfoIcon } from './icons';
 
-export const ToastNotification = ({ message, onClose, duration = 5000 }) => {
+const notificationTypes = {
+    success: {
+        icon: <SuccessIcon className="w-12 h-12 text-green-500" />,
+        title: '¡Éxito!',
+        buttonClass: 'bg-green-500 hover:bg-green-600',
+    },
+    error: {
+        icon: <ErrorIcon className="w-12 h-12 text-red-500" />,
+        title: 'Error',
+        buttonClass: 'bg-red-500 hover:bg-red-600',
+    },
+    info: {
+        icon: <InfoIcon className="w-12 h-12 text-blue-500" />,
+        title: 'Información',
+        buttonClass: 'bg-blue-500 hover:bg-blue-600',
+    },
+};
+
+export const ToastNotification = ({ message, onClose, duration = 5000, type = 'info' }) => {
     useEffect(() => {
         const timer = setTimeout(() => {
             onClose();
@@ -9,22 +28,21 @@ export const ToastNotification = ({ message, onClose, duration = 5000 }) => {
         return () => clearTimeout(timer);
     }, [duration, onClose]);
 
+    const { icon, title, buttonClass } = notificationTypes[type] || notificationTypes.info;
+
     return (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 animate-slide-down">
-            <div className="bg-white shadow-lg rounded-lg p-4 flex items-center space-x-3 max-w-md">
-                <div className="flex-shrink-0">
-                    <svg className="w-6 h-6 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                    </svg>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white shadow-2xl rounded-2xl p-8 flex flex-col items-center text-center max-w-sm w-full animate-fade-in-up">
+                <div className="mb-4">
+                    {icon}
                 </div>
-                <div className="flex-grow">
-                    <p className="text-sm font-semibold text-gray-900">Nueva respuesta</p>
-                    <p className="text-sm text-gray-600">{message}</p>
-                </div>
-                <button onClick={onClose} className="flex-shrink-0 text-gray-400 hover:text-gray-600">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                <h3 className="text-2xl font-bold text-gray-800 mb-2">{title}</h3>
+                <p className="text-gray-600 mb-6">{message}</p>
+                <button 
+                    onClick={onClose} 
+                    className={`text-white font-bold py-3 px-8 rounded-full transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 ${buttonClass}`}
+                >
+                    Entendido
                 </button>
             </div>
         </div>

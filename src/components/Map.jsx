@@ -29,6 +29,7 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
 
   // Notify parent of download state changes
   useEffect(() => {
+    console.log('Download state changed:', { isDownloading, downloadProgress, downloadTotal, showDownloadComplete });
     if (onDownloadStateChange) {
       onDownloadStateChange({
         isDownloading,
@@ -132,13 +133,18 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
       // Event listeners for download progress - attach to baseLayer, not control
       offlineLayer.on('savestart', (e) => {
         console.log('Download started:', e);
+        const totalTiles = e.lengthToBeSaved || 0;
+        console.log(`savestart event - total tiles: ${totalTiles}`);
+        console.log('Setting isDownloading to true');
         setIsDownloading(true);
-        setDownloadTotal(e.lengthToBeSaved || 0);
+        setDownloadTotal(totalTiles);
         setDownloadProgress(0);
       });
 
-      offlineLayer.on('loadtileend', () => {
-        setDownloadProgress(prev => prev + 1);
+      offlineLayer.on('loadtileend', (e) => {
+        const newProgress = (e.lengthLoaded || 0);
+        setDownloadProgress(newProgress);
+        console.log(`Progress: ${newProgress}/${e.lengthToBeSaved}`);
       });
 
       offlineLayer.on('savetileend', () => {
@@ -146,12 +152,14 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
       });
 
       offlineLayer.on('saveend', () => {
-        console.log('Download completed');
+        console.log('Download completed - saveend event fired');
+        console.log('Setting isDownloading to false and showDownloadComplete to true');
         setIsDownloading(false);
         hasDownloadedRef.current = true;
+        // Show success message briefly, then hide everything
         setShowDownloadComplete(true);
-        // Auto-dismiss success message after 5 seconds
         setTimeout(() => {
+          console.log('Hiding download complete message');
           setShowDownloadComplete(false);
         }, 5000);
       });
@@ -189,10 +197,22 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
 
         // Auto-download map tiles when location is found and online
         if (isOnline && !hasDownloadedRef.current) {
-          console.log('Starting automatic map download for 3km radius...');
+          console.log('Checking if tiles need to be downloaded...');
+          
           setTimeout(() => {
-            offlineControl._saveTiles();
-          }, 2000); // Wait 2 seconds before starting download
+            // Calculate tiles that need to be saved
+            const tiles = offlineControl._calculateTiles();
+            console.log(`Tiles to download: ${tiles.length}`);
+            
+            if (tiles.length === 0) {
+              console.log('All tiles already downloaded, skipping auto-download');
+              hasDownloadedRef.current = true;
+            } else {
+              console.log('Starting automatic map download for 3km radius...');
+              setDownloadTotal(tiles.length);
+              offlineControl._saveTiles();
+            }
+          }, 2000); // Wait 2 seconds before checking
         }
       };
 
@@ -279,8 +299,8 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
   // Monitor online/offline status changes
   useEffect(() => {
     if (isOnline && userLocationRef.current && offlineControlRef.current && !hasDownloadedRef.current) {
-      // When coming back online and haven't downloaded yet, start download
-      console.log('Back online - starting map download if not done yet...');
+      // When coming back online and haven't downloaded yet, check if download is needed
+      console.log('Back online - checking if map needs download...');
       const bounds = offlineControlRef.current.options.bounds;
       if (!bounds && userLocationRef.current) {
         // Calculate and set bounds if not set
@@ -291,8 +311,20 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
           [userLocationRef.current[0] + latOffset, userLocationRef.current[1] + lngOffset]
         );
       }
+      
       setTimeout(() => {
-        offlineControlRef.current._saveTiles();
+        // Calculate tiles that need to be saved
+        const tiles = offlineControlRef.current._calculateTiles();
+        console.log(`Tiles to download: ${tiles.length}`);
+        
+        if (tiles.length === 0) {
+          console.log('All tiles already downloaded, skipping download');
+          hasDownloadedRef.current = true;
+        } else {
+          console.log('Starting map download...');
+          setDownloadTotal(tiles.length);
+          offlineControlRef.current._saveTiles();
+        }
       }, 1000);
     }
   }, [isOnline]);

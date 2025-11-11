@@ -87,8 +87,25 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
   const [isOfferModalOpen, setOfferModalOpen] = useState(false);
   const [selectedPin, setSelectedPin] = useState(null);
   const [selectedConversation, setSelectedConversation] = useState(null);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingPins, setPendingPins] = useState(() => {
+    const saved = localStorage.getItem('pendingPins');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [drawerOpen, setDrawerOpen] = useState(true);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
   const [isFilterPanelOpen, setFilterPanelOpen] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [userAlias, setUserAlias] = useState(null);
@@ -102,6 +119,11 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
     showDownloadComplete: false
   });
   const [isDownloadExpanded, setIsDownloadExpanded] = useState(false);
+
+  // Debug download state changes
+  useEffect(() => {
+    console.log('App - downloadState updated:', downloadState);
+  }, [downloadState]);
 
   // Auto-collapse download notification when it completes
   useEffect(() => {
@@ -166,154 +188,176 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
     initUserProfile();
   }, [userId]);
 
-  const handleAliasSet = async (alias) => {
-    try {
-      await userService.updateUserProfile(userId, { alias });
-      setUserAlias(alias);
-    } catch (error) {
-      console.error('Error setting user alias:', error);
-      alert('Error al guardar tu nombre. Intenta de nuevo.');
-    }
-  };
-
-  useEffect(() => {
-    const unsubscribe = pinService.subscribeToPins((newPins) => {
-      setPins(newPins);
-    }, userLocation, userId);
-
-    return () => unsubscribe();
-  }, [userLocation]);
-
-  // Subscribe to unread count
-  useEffect(() => {
-    const unsubscribe = pinService.subscribeToUnreadCount(userId, (count) => {
-      setUnreadCount(count);
-    });
-
-    // Periodic refresh every 30 seconds as a fallback
-    const refreshInterval = setInterval(() => {
-      // The subscription will automatically update, but this ensures
-      // we catch any missed updates
-      pinService.subscribeToUnreadCount(userId, (count) => {
+      const handleAliasSet = async (alias) => {
+        try {
+          await userService.updateUserProfile(userId, { alias });
+          setUserAlias(alias);
+          addNotification('¡Nombre guardado exitosamente!', 'success');
+        } catch (error) {
+          console.error('Error setting user alias:', error);
+          addNotification('Error al guardar tu nombre. Intenta de nuevo.', 'error');
+        }
+      };  
+    useEffect(() => {
+      const unsubscribe = pinService.subscribeToPins((newPins) => {
+        setPins(newPins);
+      }, userLocation, userId);
+  
+      return () => unsubscribe();
+    }, [userLocation]);
+  
+    // Subscribe to unread count
+    useEffect(() => {
+      const unsubscribe = pinService.subscribeToUnreadCount(userId, (count) => {
         setUnreadCount(count);
       });
-    }, 30000);
-
-    return () => {
-      unsubscribe();
-      clearInterval(refreshInterval);
-    };
-  }, [userId]);
-
-  // Subscribe to new messages for notifications
-  useEffect(() => {
-    const unsubscribe = pinService.subscribeToNewMessages(userId, (notification) => {
-      // Don't show notification if the conversation is currently open
-      if (view === 'chat' && 
-          selectedConversation && 
-          selectedConversation.id === notification.conversationId &&
-          selectedPin &&
-          selectedPin.id === notification.pinId) {
-        return; // Skip notification if this conversation is open
-      }
-
-      // Add notification to the list
-      const newNotification = {
-        id: `${notification.pinId}-${notification.conversationId}-${Date.now()}`,
-        message: `${notification.userAlias} ha respondido a tu pin de ${notification.pinCategory}`
-      };
-      setNotifications(prev => [...prev, newNotification]);
-    });
-
-    return () => unsubscribe();
-  }, [userId, view, selectedConversation, selectedPin]);
-
-
-
-  const userPins = pins.filter(p => p.user === 'me');
-  const attendingPins = pins.filter(p => p.attending);
-
-  const handlePublish = async (pinData) => {
-    try {
-      const baseLocation = userLocation || [51.505, -0.09];
-      const newPinLocation = generateNearbyCoords(baseLocation, 0.1); // Very close to user
-      
-      const pinToCreate = {
-        ...pinData,
-        latLng: newPinLocation,
-        time: 'ahora',
-        distance: `${calculateDistance(baseLocation, newPinLocation).toFixed(1)} km`
-      };
-
-      if (isOnline) {
-        await pinService.createPin(pinToCreate, userId);
-        alert('¡Pin publicado exitosamente!');
-      } else {
-        alert('Sin conexión. Intenta de nuevo cuando tengas conexión.');
-      }
-    } catch (error) {
-      console.error('Error publishing pin:', error);
-      alert('Error al publicar el pin. Intenta de nuevo.');
-    }
-  };
   
-  const handlePinClick = async (pin) => {
-    // Load conversations if it's a user's pin
-    if (pin.user === 'me') {
-      try {
-        const conversations = await pinService.getConversations(pin.id);
-        setSelectedPin({ ...pin, conversations: conversations || [] });
-      } catch (error) {
-        console.error('Error loading conversations:', error);
-        setSelectedPin({ ...pin, conversations: [] });
-      }
-    } else {
-      setSelectedPin(pin);
-    }
-    setView('pinInfo');
-  };
-
-  const handleResolvePin = async (pinId) => {
-    try {
-      await pinService.resolvePin(pinId);
-      alert('¡Pin resuelto exitosamente!');
-      goBackToMap();
-    } catch (error) {
-      console.error('Error resolving pin:', error);
-      alert('Error al resolver el pin. Intenta de nuevo.');
-    }
-  };
+      // Periodic refresh every 30 seconds as a fallback
+      const refreshInterval = setInterval(() => {
+        // The subscription will automatically update, but this ensures
+        // we catch any missed updates
+        pinService.subscribeToUnreadCount(userId, (count) => {
+          setUnreadCount(count);
+        });
+      }, 30000);
   
-  const handleAttend = async (pin) => {
-    // Check if user already has a conversation for this pin
-    try {
-      const conversations = await pinService.getConversations(pin.id);
-      const existingConv = conversations.find(c => c.userId === userId);
+      return () => {
+        unsubscribe();
+        clearInterval(refreshInterval);
+      };
+    }, [userId]);
+  
+    // Subscribe to new messages for notifications
+    useEffect(() => {
+      const unsubscribe = pinService.subscribeToNewMessages(userId, (notification) => {
+        // Don't show notification if the conversation is currently open
+        if (view === 'chat' && 
+            selectedConversation && 
+            selectedConversation.id === notification.conversationId &&
+            selectedPin &&
+            selectedPin.id === notification.pinId) {
+          return; // Skip notification if this conversation is open
+        }
+  
+        // Add notification to the list
+        const newNotification = {
+          id: `${notification.pinId}-${notification.conversationId}-${Date.now()}`,
+          message: `${notification.userAlias} ha respondido a tu pin de ${notification.pinCategory}`
+        };
+        setNotifications(prev => [...prev, newNotification]);
+      });
+  
+      return () => unsubscribe();
+    }, [userId, view, selectedConversation, selectedPin]);
+  
+  
+  
+      useEffect(() => {
+        // When app comes online, notify user of pending pins that were synced
+        if (isOnline && pendingPins.length > 0) {
+          addNotification(`¡Se han publicado ${pendingPins.length} de tus pines pendientes!`, 'success');
+          
+          // Clear pending pins
+          setPendingPins([]);
+          localStorage.removeItem('pendingPins');
+        }
+      }, [isOnline]);  
+    const userPins = pins.filter(p => p.user === 'me');
+    const attendingPins = pins.filter(p => p.attending);
+  
+      const addNotification = (message, type = 'info') => {
+        const newNotification = {
+          id: `notification-${Date.now()}`,
+          message,
+          type,
+        };
+        setNotifications(prev => [...prev, newNotification]);
+      };
+    
+      const handlePublish = async (pinData) => {
+        try {
+          const baseLocation = userLocation || [51.505, -0.09];
+          const newPinLocation = generateNearbyCoords(baseLocation, 0.1); // Very close to user
+          
+          const pinToCreate = {
+            ...pinData,
+            latLng: newPinLocation,
+            time: 'ahora',
+            distance: `${calculateDistance(baseLocation, newPinLocation).toFixed(1)} km`
+          };
+    
+          if (isOnline) {
+            await pinService.createPin(pinToCreate, userId);
+            addNotification('¡Pin publicado exitosamente!', 'success');
+          } else {
+            // Offline: add to pending queue
+            const pendingPin = { ...pinToCreate, id: `pending-${Date.now()}` };
+            const updatedPendingPins = [...pendingPins, pendingPin];
+            setPendingPins(updatedPendingPins);
+            localStorage.setItem('pendingPins', JSON.stringify(updatedPendingPins));
+            addNotification('Sin conexión. Tu pin se publicará cuando vuelvas a estar en línea.', 'info');
+          }
+        } catch (error) {
+          console.error('Error publishing pin:', error);
+          addNotification('Error al publicar el pin. Intenta de nuevo.', 'error');
+        }
+      };
       
-      if (existingConv) {
-        setSelectedPin({ ...pin, conversations });
-        setSelectedConversation(existingConv);
-        setView('chat');
-      } else {
-        // Create new conversation
-        const initialMessage = '¡Hola! Vi tu pin y me gustaría ayudar.';
-        const conversation = await pinService.addConversation(
-          pin.id, 
-          userId, 
-          userAlias,
-          initialMessage
-        );
-        setSelectedPin({ ...pin, conversations: [conversation] });
-        setSelectedConversation(conversation);
-        setView('chat');
-      }
-    } catch (error) {
-      console.error('Error attending pin:', error);
-      alert('Error al conectar con el pin. Intenta de nuevo.');
-    }
-  };
-
-  const goBackToMap = () => {
+      const handlePinClick = async (pin) => {
+        // Load conversations if it's a user's pin
+        if (pin.user === 'me') {
+          try {
+            const conversations = await pinService.getConversations(pin.id);
+            setSelectedPin({ ...pin, conversations: conversations || [] });
+          } catch (error) {
+            console.error('Error loading conversations:', error);
+            setSelectedPin({ ...pin, conversations: [] });
+          }
+        } else {
+          setSelectedPin(pin);
+        }
+        setView('pinInfo');
+      };
+    
+      const handleResolvePin = async (pinId) => {
+        try {
+          await pinService.resolvePin(pinId);
+          addNotification('¡Pin resuelto exitosamente!', 'success');
+          goBackToMap();
+        } catch (error) {
+          console.error('Error resolving pin:', error);
+          addNotification('Error al resolver el pin. Intenta de nuevo.', 'error');
+        }
+      };
+      
+      const handleAttend = async (pin) => {
+        // Check if user already has a conversation for this pin
+        try {
+          const conversations = await pinService.getConversations(pin.id);
+          const existingConv = conversations.find(c => c.userId === userId);
+          
+          if (existingConv) {
+            setSelectedPin({ ...pin, conversations });
+            setSelectedConversation(existingConv);
+            setView('chat');
+          } else {
+            // Create new conversation
+            const initialMessage = '¡Hola! Vi tu pin y me gustaría ayudar.';
+            const conversation = await pinService.addConversation(
+              pin.id, 
+              userId, 
+              userAlias,
+              initialMessage
+            );
+            setSelectedPin({ ...pin, conversations: [conversation] });
+            setSelectedConversation(conversation);
+            setView('chat');
+          }
+        } catch (error) {
+          console.error('Error attending pin:', error);
+          addNotification('Error al conectar con el pin. Intenta de nuevo.', 'error');
+        }
+      };  const goBackToMap = () => {
     setSelectedPin(null);
     setSelectedConversation(null);
     setView('map');
@@ -395,7 +439,6 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
         
         <Header 
             isOnline={isOnline} 
-            setIsOnline={setIsOnline} 
             setFilterPanelOpen={setFilterPanelOpen} 
             setView={setView}
             unreadCount={unreadCount}
@@ -418,7 +461,8 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
 
             {/* Map Download Notifications - positioned above action buttons */}
             {downloadState.isDownloading && (
-              <div className="absolute bottom-56 right-4 z-[60]">
+              <div className="absolute right-4 bottom-32 z-[9999] bg-red-500 p-4">
+                <p style={{ color: 'white' }}>DOWNLOADING: {downloadState.downloadProgress}/{downloadState.downloadTotal}</p>
                 <DownloadNotification 
                   progress={downloadState.downloadProgress} 
                   total={downloadState.downloadTotal}
@@ -428,7 +472,11 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
               </div>
             )}
             {downloadState.showDownloadComplete && (
-              <div className="absolute bottom-56 right-4 bg-green-500 text-white p-4 rounded-lg shadow-xl z-[60] animate-fadeIn">
+              <div className={`absolute right-4 bg-green-500 text-white p-4 rounded-lg shadow-xl z-[70] animate-fadeIn transition-all duration-300 ${
+                drawerOpen 
+                  ? 'bottom-[calc(30vh+11.5rem)]'
+                  : 'bottom-[10.5rem]'
+              }`}>
                 <div className="flex items-center">
                   <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
@@ -443,7 +491,7 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
           </>
         )}
         
-        {view === 'myPins' && <MyPinsScreen userPins={userPins} pendingPins={[]} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} />}
+        {view === 'myPins' && <MyPinsScreen userPins={userPins} pendingPins={pendingPins} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} />}
         {view === 'attending' && <AttendingPinsScreen attendingPins={attendingPins} onBack={goBackToMap} onViewConversation={handleViewConversation} />}
         {view === 'pinInfo' && selectedPin && <PinInfoScreen pin={selectedPin} onBack={goBackToMap} onAttend={handleAttend} isMyPin={selectedPin.user === 'me'} onResolve={handleResolvePin} onViewConversations={handleViewConversations} />}
         {view === 'conversations' && <ConversationsListScreen pin={selectedPin} onBack={() => setView('pinInfo')} onSelectConversation={handleSelectConversation} />}
@@ -452,13 +500,13 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
       </div>
 
       {/* Toast Notifications */}
-      {notifications.map((notification, index) => (
-        <div key={notification.id} style={{ top: `${80 + (index * 80)}px` }} className="absolute">
-          <ToastNotification
-            message={notification.message}
-            onClose={() => removeNotification(notification.id)}
-          />
-        </div>
+      {notifications.map((notification) => (
+        <ToastNotification
+          key={notification.id}
+          message={notification.message}
+          type={notification.type}
+          onClose={() => removeNotification(notification.id)}
+        />
       ))}
 
       {isRequestModalOpen && <PinCreationModal type="need" onClose={() => setRequestModalOpen(false)} onPublish={handlePublish} />}
