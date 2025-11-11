@@ -31,16 +31,10 @@ function LogPanel({ onClose }) {
   );
 }
 
+import { lazy, Suspense } from 'preact/compat';
 import { CATEGORIES } from './constants';
 import { pinService, userService } from './services/firebase';
 import { SetAliasScreen } from './components/SetAliasScreen';
-import { PinCreationModal } from './components/PinCreationModal';
-import { PinInfoScreen } from './components/PinInfoScreen';
-import { AttendingPinsScreen } from './components/AttendingPinsScreen';
-import { ConversationsListScreen } from './components/ConversationsListScreen';
-import { ChatScreen } from './components/ChatScreen';
-import { MyPinsScreen } from './components/MyPinsScreen';
-import { FilterPanel } from './components/FilterPanel';
 import { Header } from './components/Header';
 import { ActionButtons } from './components/ActionButtons';
 import { NearbyPinsDrawer } from './components/NearbyPinsDrawer';
@@ -48,17 +42,40 @@ import { ToastNotification } from './components/ToastNotification';
 import { DownloadNotification } from './components/DownloadNotification';
 import Map from './components/Map';
 
+const PinCreationModal = lazy(() => import('./components/PinCreationModal'));
+const PinInfoScreen = lazy(() => import('./components/PinInfoScreen'));
+const AttendingPinsScreen = lazy(() => import('./components/AttendingPinsScreen'));
+const ConversationsListScreen = lazy(() => import('./components/ConversationsListScreen'));
+const ChatScreen = lazy(() => import('./components/ChatScreen'));
+const MyPinsScreen = lazy(() => import('./components/MyPinsScreen'));
+const FilterPanel = lazy(() => import('./components/FilterPanel'));
+
+import { HexagonIcon } from './components/icons';
 function LoadingScreen({ message }) {
     return (
-        <div className="h-screen w-screen bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center p-4">
-            <div className="max-w-md w-full bg-white/30 backdrop-blur-lg rounded-2xl shadow-2xl p-8 text-center text-white">
-                <div className="flex justify-center items-center space-x-2">
-                    <div className="w-4 h-4 bg-white rounded-full animate-bounce-1"></div>
-                    <div className="w-4 h-4 bg-white rounded-full animate-bounce-2"></div>
-                    <div className="w-4 h-4 bg-white rounded-full animate-bounce-3"></div>
+        <div className="h-screen w-screen bg-yellow-400 flex items-center justify-center p-4 relative overflow-hidden">
+            {/* Hexagonal background pattern */}
+            <div className="absolute inset-0 z-0 opacity-20">
+                {[...Array(20)].map((_, i) => (
+                    <HexagonIcon key={i} className="absolute text-yellow-300" style={{
+                        width: `${Math.random() * 150 + 50}px`,
+                        height: `${Math.random() * 150 + 50}px`,
+                        top: `${Math.random() * 100}%`,
+                        left: `${Math.random() * 100}%`,
+                        transform: `translate(-50%, -50%) rotate(${Math.random() * 360}deg)`,
+                        animation: `pulse ${Math.random() * 5 + 3}s infinite alternate`
+                    }}/>
+                ))}
+            </div>
+
+            <div className="max-w-md w-full bg-white/20 backdrop-blur-md rounded-3xl shadow-2xl p-8 text-center text-white relative z-10">
+                <h1 className="text-6xl font-bold text-white mb-4" style={{ fontFamily: "'Montserrat', sans-serif" }}>Enjambre</h1>
+                <div className="flex justify-center items-center space-x-3 mt-6">
+                    <div className="w-4 h-4 bg-white rounded-full animate-pulse-1"></div>
+                    <div className="w-4 h-4 bg-white rounded-full animate-pulse-2" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="w-4 h-4 bg-white rounded-full animate-pulse-3" style={{ animationDelay: '0.4s' }}></div>
                 </div>
-                <h1 className="text-3xl font-bold text-white mt-6">Enjambre</h1>
-                <p className="text-lg text-white/80 mt-2">{message}</p>
+                <p className="text-lg text-white/90 mt-6">{message}</p>
             </div>
         </div>
     );
@@ -491,11 +508,11 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
           </>
         )}
         
-        {view === 'myPins' && <MyPinsScreen userPins={userPins} pendingPins={pendingPins} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} />}
-        {view === 'attending' && <AttendingPinsScreen attendingPins={attendingPins} onBack={goBackToMap} onViewConversation={handleViewConversation} />}
-        {view === 'pinInfo' && selectedPin && <PinInfoScreen pin={selectedPin} onBack={goBackToMap} onAttend={handleAttend} isMyPin={selectedPin.user === 'me'} onResolve={handleResolvePin} onViewConversations={handleViewConversations} />}
-        {view === 'conversations' && <ConversationsListScreen pin={selectedPin} onBack={() => setView('pinInfo')} onSelectConversation={handleSelectConversation} />}
-        {view === 'chat' && <ChatScreen pin={selectedPin} conversation={selectedConversation} userId={userId} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} onMarkAsRead={handleMarkConversationAsRead} />}
+        {view === 'myPins' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><MyPinsScreen userPins={userPins} pendingPins={pendingPins} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} /></Suspense>}
+        {view === 'attending' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><AttendingPinsScreen attendingPins={attendingPins} onBack={goBackToMap} onViewConversation={handleViewConversation} /></Suspense>}
+        {view === 'pinInfo' && selectedPin && <Suspense fallback={<LoadingScreen message="Cargando..." />}><PinInfoScreen pin={selectedPin} onBack={goBackToMap} onAttend={handleAttend} isMyPin={selectedPin.user === 'me'} onResolve={handleResolvePin} onViewConversations={handleViewConversations} /></Suspense>}
+        {view === 'conversations' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><ConversationsListScreen pin={selectedPin} onBack={() => setView('pinInfo')} onSelectConversation={handleSelectConversation} /></Suspense>}
+        {view === 'chat' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><ChatScreen pin={selectedPin} conversation={selectedConversation} userId={userId} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} onMarkAsRead={handleMarkConversationAsRead} /></Suspense>}
 
       </div>
 
@@ -509,9 +526,11 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
         />
       ))}
 
-      {isRequestModalOpen && <PinCreationModal type="need" onClose={() => setRequestModalOpen(false)} onPublish={handlePublish} />}
-      {isOfferModalOpen && <PinCreationModal type="offer" onClose={() => setOfferModalOpen(false)} onPublish={handlePublish} />}
-      {isFilterPanelOpen && <FilterPanel filters={filters} setFilters={setFilters} onClose={() => setFilterPanelOpen(false)} onReset={() => setFilters(initialFilters)} />}
+      <Suspense fallback={<div />}>
+        {isRequestModalOpen && <PinCreationModal type="need" onClose={() => setRequestModalOpen(false)} onPublish={handlePublish} />}
+        {isOfferModalOpen && <PinCreationModal type="offer" onClose={() => setOfferModalOpen(false)} onPublish={handlePublish} />}
+        {isFilterPanelOpen && <FilterPanel filters={filters} setFilters={setFilters} onClose={() => setFilterPanelOpen(false)} onReset={() => setFilters(initialFilters)} />}
+      </Suspense>
     </div>
   );
 }

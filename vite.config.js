@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
+import { visualizer } from 'rollup-plugin-visualizer';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -33,9 +35,27 @@ export default defineConfig({
             type: 'image/png'
           }
         ]
-      }
+      },
+      workbox: {
+        runtimeCaching: [
+          {
+            urlPattern: /\.(?:js|css|html|ico|png|svg)$/,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'static-assets',
+              expiration: {
+                maxEntries: 60,
+                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 Days
+              },
+            },
+          },
+        ],
+      },
     }),
-    basicSsl()
+    basicSsl(),
+    visualizer({
+      open: true,
+    }),
   ],
   resolve: {
     alias: {
