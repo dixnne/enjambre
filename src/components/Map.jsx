@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import 'leaflet/dist/leaflet.css';
-import * as L from 'leaflet';
-import { tileLayerOffline, savetiles } from 'leaflet.offline';
+import L from 'leaflet';
+import 'leaflet.offline';
 import { CATEGORIES } from '../constants';
 import { DownloadNotification } from './DownloadNotification';
 
-// Log utility
-const logs = [];
-const addLog = (message) => {
-  logs.push(`${new Date().toLocaleTimeString()}: ${message}`);
-};
-
 const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadStateChange }) => {
-  addLog('Map: component rendered');
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const userMarkerRef = useRef(null);
@@ -74,12 +67,10 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
   const mapReadyCalledRef = useRef(false);
 
   useEffect(() => {
-    addLog('Map: useEffect started');
     if (mapContainerRef.current && !mapRef.current) {
-      addLog('Map: map container found, initializing map');
       const initialView = userLocation || [51.505, -0.09];
       const map = L.map(mapContainerRef.current, {
-        zoomControl: false // Disable default zoom controls
+        zoomControl: false
       }).setView(initialView, 13);
       mapRef.current = map;
 
@@ -93,7 +84,7 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
         userMarkerRef.current = L.marker(userLocation, { icon: userIcon }).addTo(map);
       }
 
-      const offlineLayer = tileLayerOffline('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      const offlineLayer = L.tileLayer.offline('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         subdomains: 'abc',
         minZoom: 11,
@@ -113,7 +104,7 @@ const Map = ({ pins, onPinClick, onMapReady, userLocation, isOnline, onDownloadS
         );
       };
 
-      const offlineControl = savetiles(offlineLayer, {
+      const offlineControl = L.control.savetiles(offlineLayer, {
         saveText: '<i class="fa fa-download"></i> Descargar Mapa',
         rmText: '<i class="fa fa-trash"></i> Eliminar',
         maxZoom: 16,

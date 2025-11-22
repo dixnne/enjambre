@@ -1,45 +1,15 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-
-// Log utility
-const logs = [];
-const addLog = (message) => {
-  logs.push(`${new Date().toLocaleTimeString()}: ${message}`);
-  // In a real app, you'd want to manage the size of this array
-  // and update the UI through state.
-};
-
-function LogPanel({ onClose }) {
-  const [visibleLogs, setVisibleLogs] = useState([]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisibleLogs([...logs]);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '200px', backgroundColor: 'rgba(0,0,0,0.8)', color: 'white', overflowY: 'scroll', padding: '10px', zIndex: 9999, fontFamily: 'monospace' }}>
-      <button onClick={onClose} style={{ position: 'absolute', top: '5px', right: '10px', background: 'none', border: 'none', color: 'white', fontSize: '1.2em', cursor: 'pointer' }}>X</button>
-      <h2>Logs</h2>
-      <ul>
-        {visibleLogs.map((log, index) => (
-          <li key={index}>{log}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 import { lazy, Suspense } from 'preact/compat';
 import { CATEGORIES } from './constants';
 import { pinService, userService } from './services/firebase';
+import { loadingTracker } from './services/loadingTracker';
 import { SetAliasScreen } from './components/SetAliasScreen';
 import { Header } from './components/Header';
 import { ActionButtons } from './components/ActionButtons';
 import { NearbyPinsDrawer } from './components/NearbyPinsDrawer';
 import { ToastNotification } from './components/ToastNotification';
 import { DownloadNotification } from './components/DownloadNotification';
+import { LoadingScreen, LoadingSpinner } from './components/LoadingScreen';
 import Map from './components/Map';
 
 const PinCreationModal = lazy(() => import('./components/PinCreationModal'));
@@ -49,37 +19,6 @@ const ConversationsListScreen = lazy(() => import('./components/ConversationsLis
 const ChatScreen = lazy(() => import('./components/ChatScreen'));
 const MyPinsScreen = lazy(() => import('./components/MyPinsScreen'));
 const FilterPanel = lazy(() => import('./components/FilterPanel'));
-
-import { HexagonIcon } from './components/icons';
-function LoadingScreen({ message }) {
-    return (
-        <div className="h-screen w-screen bg-yellow-400 flex items-center justify-center p-4 relative overflow-hidden">
-            {/* Hexagonal background pattern */}
-            <div className="absolute inset-0 z-0 opacity-20">
-                {[...Array(20)].map((_, i) => (
-                    <HexagonIcon key={i} className="absolute text-yellow-300" style={{
-                        width: `${Math.random() * 150 + 50}px`,
-                        height: `${Math.random() * 150 + 50}px`,
-                        top: `${Math.random() * 100}%`,
-                        left: `${Math.random() * 100}%`,
-                        transform: `translate(-50%, -50%) rotate(${Math.random() * 360}deg)`,
-                        animation: `pulse ${Math.random() * 5 + 3}s infinite alternate`
-                    }}/>
-                ))}
-            </div>
-
-            <div className="max-w-md w-full bg-white/20 backdrop-blur-md rounded-3xl shadow-2xl p-8 text-center text-white relative z-10">
-                <h1 className="text-6xl font-bold text-white mb-4" style={{ fontFamily: "'Montserrat', sans-serif" }}>Enjambre</h1>
-                <div className="flex justify-center items-center space-x-3 mt-6">
-                    <div className="w-4 h-4 bg-white rounded-full animate-pulse-1"></div>
-                    <div className="w-4 h-4 bg-white rounded-full animate-pulse-2" style={{ animationDelay: '0.2s' }}></div>
-                    <div className="w-4 h-4 bg-white rounded-full animate-pulse-3" style={{ animationDelay: '0.4s' }}></div>
-                </div>
-                <p className="text-lg text-white/90 mt-6">{message}</p>
-            </div>
-        </div>
-    );
-}
 
 function ErrorScreen({ message }) {
     return (
@@ -97,8 +36,7 @@ function ErrorScreen({ message }) {
 
 
 function AuthenticatedApp({ userId, userLocation, onMapReady }) {
-  addLog('AuthenticatedApp rendered');
-  const [view, setView] = useState('map'); // map, myPins, attending, pinInfo, conversations, chat
+  const [view, setView] = useState('map');
   const [pins, setPins] = useState([]);
   const [isRequestModalOpen, setRequestModalOpen] = useState(false);
   const [isOfferModalOpen, setOfferModalOpen] = useState(false);
@@ -182,23 +120,17 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
   // Initialize user profile
   useEffect(() => {
     const initUserProfile = async () => {
-      addLog('initUserProfile started');
       try {
         let profile = await userService.getUserProfile(userId);
-        addLog(`User profile: ${JSON.stringify(profile)}`);
         if (profile && profile.alias) {
-          addLog(`Alias found: ${profile.alias}`);
           setUserAlias(profile.alias);
         } else {
-          addLog('No alias found, showing SetAliasScreen');
-          setUserAlias(null); // Show SetAliasScreen
+          setUserAlias(null);
         }
       } catch (error) {
-        addLog(`Error initializing user profile: ${error.message}`);
         console.error('Error initializing user profile:', error);
-        setUserAlias(null); // Show SetAliasScreen on error too
+        setUserAlias(null);
       } finally {
-        addLog('initUserProfile finished');
         setIsAliasLoading(false);
       }
     };
@@ -508,11 +440,11 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
           </>
         )}
         
-        {view === 'myPins' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><MyPinsScreen userPins={userPins} pendingPins={pendingPins} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} /></Suspense>}
-        {view === 'attending' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><AttendingPinsScreen attendingPins={attendingPins} onBack={goBackToMap} onViewConversation={handleViewConversation} /></Suspense>}
-        {view === 'pinInfo' && selectedPin && <Suspense fallback={<LoadingScreen message="Cargando..." />}><PinInfoScreen pin={selectedPin} onBack={goBackToMap} onAttend={handleAttend} isMyPin={selectedPin.user === 'me'} onResolve={handleResolvePin} onViewConversations={handleViewConversations} /></Suspense>}
-        {view === 'conversations' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><ConversationsListScreen pin={selectedPin} onBack={() => setView('pinInfo')} onSelectConversation={handleSelectConversation} /></Suspense>}
-        {view === 'chat' && <Suspense fallback={<LoadingScreen message="Cargando..." />}><ChatScreen pin={selectedPin} conversation={selectedConversation} userId={userId} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} onMarkAsRead={handleMarkConversationAsRead} /></Suspense>}
+        {view === 'myPins' && <Suspense fallback={<LoadingSpinner size="lg" message="Cargando tus pines..." />}><MyPinsScreen userPins={userPins} pendingPins={pendingPins} onBack={goBackToMap} onResolve={handleResolvePin} onViewPin={handleViewMyPin} /></Suspense>}
+        {view === 'attending' && <Suspense fallback={<LoadingSpinner size="lg" message="Cargando..." />}><AttendingPinsScreen attendingPins={attendingPins} onBack={goBackToMap} onViewConversation={handleViewConversation} /></Suspense>}
+        {view === 'pinInfo' && selectedPin && <Suspense fallback={<LoadingSpinner size="lg" message="Cargando..." />}><PinInfoScreen pin={selectedPin} onBack={goBackToMap} onAttend={handleAttend} isMyPin={selectedPin.user === 'me'} onResolve={handleResolvePin} onViewConversations={handleViewConversations} /></Suspense>}
+        {view === 'conversations' && <Suspense fallback={<LoadingSpinner size="lg" message="Cargando..." />}><ConversationsListScreen pin={selectedPin} onBack={() => setView('pinInfo')} onSelectConversation={handleSelectConversation} /></Suspense>}
+        {view === 'chat' && <Suspense fallback={<LoadingSpinner size="lg" message="Cargando chat..." />}><ChatScreen pin={selectedPin} conversation={selectedConversation} userId={userId} onBack={() => selectedPin.user === 'me' ? setView('conversations') : setView('pinInfo')} onMarkAsRead={handleMarkConversationAsRead} /></Suspense>}
 
       </div>
 
@@ -536,25 +468,33 @@ function AuthenticatedApp({ userId, userLocation, onMapReady }) {
 }
 
 export default function App() {
-    addLog('App component rendered');
     const [loading, setLoading] = useState(true);
     const [user, setUser] = useState(null);
     const [error, setError] = useState(null);
     const [userLocation, setUserLocation] = useState(null);
-    const [showLogs, setShowLogs] = useState(true);
+    const [loadingProgress, setLoadingProgress] = useState(0);
+    const [loadingStatus, setLoadingStatus] = useState('Iniciando...');
 
     useEffect(() => {
-        addLog('App: useEffect for auth started');
+        const unsubscribe = loadingTracker.subscribe(({ progress, status }) => {
+            setLoadingProgress(progress);
+            setLoadingStatus(status);
+        });
+        return unsubscribe;
+    }, []);
+
+    useEffect(() => {
         const auth = window.firebase.auth();
+        loadingTracker.markLoaded('firebase');
+        
         const unsubscribe = auth.onAuthStateChanged((currentUser) => {
             if (currentUser) {
-                addLog('App: onAuthStateChanged: user found');
                 setUser(currentUser);
+                loadingTracker.markLoaded('auth');
+                loadingTracker.markLoaded('firestore');
                 setLoading(false);
             } else {
-                addLog('App: onAuthStateChanged: no user, signing in anonymously');
                 auth.signInAnonymously().catch(err => {
-                    addLog(`App: signInAnonymously error: ${err.message}`);
                     console.error("Fallo el inicio de sesión anónimo:", err);
                     setError("No se pudo conectar a la red. Revisa tu conexión a internet.");
                     setLoading(false);
@@ -562,43 +502,35 @@ export default function App() {
             }
         });
 
-        return () => {
-            addLog('App: useEffect for auth cleaned up');
-            unsubscribe();
-        };
+        return () => unsubscribe();
     }, []);
 
     const handleMapReady = ({ map, userLocation: loc }) => {
-        addLog(`App: handleMapReady called with location: ${loc}`)
         setUserLocation(loc);
-    };
-
-    const renderLogPanel = () => {
-        if (showLogs) {
-            return <LogPanel onClose={() => setShowLogs(false)} />;
-        }
-        return null;
+        loadingTracker.markLoaded('location');
+        loadingTracker.markLoaded('map');
     };
 
     if (loading) {
-        addLog('App: rendering LoadingScreen (auth)');
-        return <><LoadingScreen message="Conectando a Enjambre..." />{renderLogPanel()}</>;
+        return <LoadingScreen message={loadingStatus} progress={loadingProgress} showProgress={true} />;
     }
     if (error) {
-        addLog(`App: rendering ErrorScreen with message: ${error}`);
-        return <><ErrorScreen message={error} />{renderLogPanel()}</>;
+        return <ErrorScreen message={error} />;
     }
     if (user) {
         if (userLocation) {
-            addLog('App: rendering AuthenticatedApp');
-            return <><AuthenticatedApp userId={user.uid} userLocation={userLocation} onMapReady={handleMapReady} />{renderLogPanel()}</>;
+            return <AuthenticatedApp userId={user.uid} userLocation={userLocation} onMapReady={handleMapReady} />;
         } else {
-            addLog('App: rendering LoadingScreen (location)');
-            // Pass a dummy onMapReady to the Map component to trigger location fetching
-            return <><LoadingScreen message="Obteniendo ubicación..." /><div style={{display: 'none'}}><Map onMapReady={handleMapReady} pins={[]} /></div>{renderLogPanel()}</>;
+            return (
+                <>
+                    <LoadingScreen message={loadingStatus} progress={loadingProgress} showProgress={true} />
+                    <div style={{display: 'none'}}>
+                        <Map onMapReady={handleMapReady} pins={[]} />
+                    </div>
+                </>
+            );
         }
     }
     
-    addLog('App: rendering fallback ErrorScreen');
-    return <><ErrorScreen message="Ha ocurrido un error inesperado." />{renderLogPanel()}</>;
+    return <ErrorScreen message="Ha ocurrido un error inesperado." />;
 }

@@ -1,20 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>enjambre-app</title>
+    <meta name="description" content="Enjambre - Red de apoyo mutuo en emergencias" />
+    <meta name="theme-color" content="#FACC15" />
+    <title>Enjambre - Red de Apoyo Mutuo</title>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style>
+      #root { min-height: 100vh; }
+      body { margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
-        <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script>
       const firebaseConfig = {
-        // PASTE YOUR FIREBASE CONFIGURATION OBJECT HERE
         apiKey: "AIzaSyCQp8pN09B-rd8VNpXtmiGo9699-csUtBA",
         authDomain: "enjambre-4ec18.firebaseapp.com",
         projectId: "enjambre-4ec18",
