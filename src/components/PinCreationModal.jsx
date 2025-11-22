@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { CATEGORIES } from '../constants';
 
 // --- Modal para Crear Pines ---
-export const PinCreationModal = ({ type, onClose, onPublish }) => {
+const PinCreationModal = ({ type, onClose, onPublish }) => {
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const isNeed = type === 'need';
@@ -22,10 +22,11 @@ export const PinCreationModal = ({ type, onClose, onPublish }) => {
         <div className="grid grid-cols-3 gap-3 mb-4">
           {Object.keys(CATEGORIES).map(cat => {
             const isSelected = category === cat;
-            const CategoryIcon = CATEGORIES[cat].icon;
+            const categoryInfo = CATEGORIES[cat] || {};
+            const CategoryIcon = categoryInfo.icon;
             return (
               <button key={cat} onClick={() => setCategory(cat)} className={`p-3 rounded-lg flex flex-col items-center justify-center transition-all duration-200 border-2 ${isSelected ? 'border-teal-500 bg-teal-50' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'}`}>
-                <CategoryIcon className={`w-7 h-7 mb-2 ${isSelected ? 'text-teal-600' : 'text-gray-500'}`} />
+                {CategoryIcon && <CategoryIcon className={`w-7 h-7 mb-2 ${isSelected ? 'text-teal-600' : 'text-gray-500'}`} />}
                 <span className={`font-semibold text-xs ${isSelected ? 'text-teal-700' : 'text-gray-600'}`}>{cat}</span>
               </button>
             )
@@ -50,3 +51,5 @@ export const PinCreationModal = ({ type, onClose, onPublish }) => {
     </div>
   );
 };
+
+export default PinCreationModal;

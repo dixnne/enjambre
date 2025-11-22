@@ -3,7 +3,7 @@ import { ArrowLeftIcon } from './icons';
 import { pinService } from '../services/firebase';
 
 // --- Pantalla de Chat ---
-export const ChatScreen = ({ pin, conversation, userId, onBack, onMarkAsRead }) => {
+const ChatScreen = ({ pin, conversation, userId, onBack, onMarkAsRead }) => {
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -97,3 +97,5 @@ export const ChatScreen = ({ pin, conversation, userId, onBack, onMarkAsRead }) 
         </div>
     );
 };
+
+export default ChatScreen;

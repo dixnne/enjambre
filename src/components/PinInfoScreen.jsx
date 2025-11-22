@@ -2,9 +2,10 @@ import { CATEGORIES } from '../constants';
 import { ArrowLeftIcon } from './icons';
 
 // --- Pantalla de Detalles del Pin ---
-export const PinInfoScreen = ({ pin, onBack, onAttend, isMyPin, onResolve, onViewConversations }) => {
+const PinInfoScreen = ({ pin, onBack, onAttend, isMyPin, onResolve, onViewConversations }) => {
     const isNeed = pin.type === 'need';
-    const CategoryIcon = CATEGORIES[pin.category].icon;
+    const categoryInfo = CATEGORIES[pin.category] || {};
+    const CategoryIcon = categoryInfo.icon;
     const categoryColor = isNeed ? 'bg-orange-100 text-orange-800' : 'bg-cyan-100 text-cyan-800';
 
     return (
@@ -17,7 +18,7 @@ export const PinInfoScreen = ({ pin, onBack, onAttend, isMyPin, onResolve, onVie
             </header>
             <div className="flex-grow p-6">
                 <div className={`inline-flex items-center px-4 py-1 rounded-full text-sm font-semibold ${categoryColor} mb-4`}>
-                    <CategoryIcon className="w-5 h-5 mr-2" />
+                    {CategoryIcon && <CategoryIcon className="w-5 h-5 mr-2" />}
                     {pin.category}
                 </div>
                 <p className="text-gray-500 text-sm mb-4">Publicado {pin.time} &bull; a {pin.distance}</p>
@@ -51,3 +52,5 @@ export const PinInfoScreen = ({ pin, onBack, onAttend, isMyPin, onResolve, onVie
         </div>
     );
 };
+
+export default PinInfoScreen;

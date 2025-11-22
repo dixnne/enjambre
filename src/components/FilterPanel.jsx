@@ -2,7 +2,7 @@ import { CATEGORIES } from '../constants';
 import { CloseIcon } from './icons';
 
 // --- Panel de Filtros ---
-export const FilterPanel = ({ filters, setFilters, onClose, onReset }) => {
+const FilterPanel = ({ filters, setFilters, onClose, onReset }) => {
     const handleCategoryChange = (category) => {
         setFilters(prev => ({
             ...prev,
@@ -64,3 +64,5 @@ export const FilterPanel = ({ filters, setFilters, onClose, onReset }) => {
         </div>
     );
 };
+
+export default FilterPanel;

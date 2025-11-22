@@ -1,7 +1,7 @@
 import { ArrowLeftIcon, UserIcon } from './icons';
 
 // --- Pantalla de Lista de Conversaciones ---
-export const ConversationsListScreen = ({ pin, onBack, onSelectConversation }) => {
+const ConversationsListScreen = ({ pin, onBack, onSelectConversation }) => {
     return (
         <div className="absolute inset-0 bg-gray-100 z-30 flex flex-col">
             <header className="p-4 flex items-center border-b bg-white">
@@ -38,3 +38,5 @@ export const ConversationsListScreen = ({ pin, onBack, onSelectConversation }) =
         </div>
     )
 }
+
+export default ConversationsListScreen;

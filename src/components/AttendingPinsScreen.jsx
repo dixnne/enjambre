@@ -2,15 +2,16 @@ import { CATEGORIES } from '../constants';
 import { ArrowLeftIcon } from './icons';
 
 // --- Pantalla de "Pines que Atiendo" ---
-export const AttendingPinsScreen = ({ attendingPins, onBack, onViewConversation }) => {
+const AttendingPinsScreen = ({ attendingPins, onBack, onViewConversation }) => {
     
     const PinItem = ({pin}) => {
-        const CategoryIcon = CATEGORIES[pin.category].icon;
+        const categoryInfo = CATEGORIES[pin.category] || {};
+        const CategoryIcon = categoryInfo.icon;
         const typeClass = pin.type === 'need' ? 'text-orange-600' : 'text-cyan-600';
         return (
             <div className="bg-white p-4 rounded-lg shadow-sm flex items-center justify-between">
                 <div className="flex items-center">
-                    <CategoryIcon className={`w-6 h-6 mr-4 ${typeClass}`} />
+                    {CategoryIcon && <CategoryIcon className={`w-6 h-6 mr-4 ${typeClass}`} />}
                     <div>
                         <p className="font-bold">{pin.category}</p>
                         <p className="text-sm text-gray-500 truncate max-w-[150px]">{pin.description || 'Sin descripción'}</p>
@@ -42,3 +43,5 @@ export const AttendingPinsScreen = ({ attendingPins, onBack, onViewConversation 
         </div>
     )
 };
+
+export default AttendingPinsScreen;

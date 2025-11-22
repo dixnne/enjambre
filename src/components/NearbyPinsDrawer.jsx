@@ -9,12 +9,13 @@ export const NearbyPinsDrawer = ({ drawerOpen, setDrawerOpen, filteredPins, hand
             </div>
             <div className="px-4 pb-4 space-y-3 max-h-[30vh] overflow-y-auto">
             {filteredPins.filter(p => p.user !== 'me').map(pin => {
-                const CategoryIcon = CATEGORIES[pin.category].icon;
+                const categoryInfo = CATEGORIES[pin.category] || {};
+                const CategoryIcon = categoryInfo.icon;
                 return (
                 <div key={pin.id} className="bg-gray-50 p-3 rounded-lg flex items-center justify-between">
                     <div className="flex items-center">
                     <div className={`p-2 rounded-full mr-3 ${pin.type === 'need' ? 'bg-orange-100' : 'bg-cyan-100'}`}>
-                        <CategoryIcon className={`w-5 h-5 ${pin.type === 'need' ? 'text-orange-600' : 'text-cyan-600'}`} />
+                        {CategoryIcon && <CategoryIcon className={`w-5 h-5 ${pin.type === 'need' ? 'text-orange-600' : 'text-cyan-600'}`} />}
                     </div>
                     <div>
                         <p className="font-bold">{pin.category} <span className="font-normal text-gray-500">&bull; {pin.distance}</span></p>
