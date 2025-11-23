@@ -1,0 +1,17 @@
+# Dependencies
+node_modules
+
+# Git
+.git
+.gitignore
+
+# Build output
+dist
+
+# Docker
+Dockerfile
+.dockerignore
+
+# SSL certs
+localhost-key.pem
+localhost.pem
